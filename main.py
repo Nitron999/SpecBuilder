@@ -2,23 +2,27 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
-import tkinter as tk
 from datetime import datetime
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 
+import customtkinter as ctk
 import openpyxl
 import pythoncom
+import win32clipboard
 import win32com.client
 import xlrd
 from num2words import num2words
 from pywinauto import Desktop, keyboard
 
 
-# Все настройки, логин, пароль и пути зашиты прямо здесь
+# =============================================================================
+# НАСТРОЙКИ ПО УМОЛЧАНИЮ (зашиты в EXE)
+# =============================================================================
 CFG = {
+    "company_name": 'ООО "ПЕЧАТНЫЕ ПЛАТЫ"',
+    "employee_name": "Мамонтова Людмила Давыдовна",
     "1c_exe": r"C:\Program Files\1cv8\common\1cestart.exe",
     "1c_base_args": 'ENTERPRISE /S"DB01\\pp_buh_new" /N"МамонтоваЛД" /P"mamon123"',
     "specs_root": r"\\Fs01\obmen\ВП\Спецификации 2019 Новая форма",
@@ -28,9 +32,24 @@ CFG = {
     },
 }
 
+# Цветовая палитра (тёмный стиль)
+BG_APP = "#0f1216"
+BG_SIDEBAR = "#13171d"
+BG_CARD = "#181d24"
+BG_INPUT = "#10141a"
+BORDER_CARD = "#262d38"
+ACCENT_GREEN = "#10b981"
+ACCENT_GREEN_HOVER = "#059669"
+ACCENT_AMBER = "#f59e0b"
+ACCENT_BLUE = "#38bdf8"
+TEXT_MAIN = "#f1f5f9"
+TEXT_MUTED = "#94a3b8"
 
+
+# =============================================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# =============================================================================
 def resolve_1c_exe(configured_path: str) -> str:
-    """Находит 1cestart.exe в Program Files или Program Files (x86)."""
     candidates = [
         configured_path,
         r"C:\Program Files\1cv8\common\1cestart.exe",
@@ -43,14 +62,12 @@ def resolve_1c_exe(configured_path: str) -> str:
 
 
 def clean_invoice_number(raw: str) -> str:
-    """Превращает 'счет 40', 'сч. 730', '№ 0083' в чистый номер ('40', '730', '0083')."""
     s = raw.strip()
     s = re.sub(r"^(?:сч[её]т|сч\.?|№)\s*", "", s, flags=re.IGNORECASE).strip()
     return s
 
 
 def parse_number(val) -> float:
-    """Преобразует число или строку вида '10 171,20 руб' в float."""
     if isinstance(val, (int, float)):
         return float(val)
     if val is None:
@@ -64,7 +81,6 @@ def parse_number(val) -> float:
 
 
 def format_rub_text(amount: float, with_suffix: bool = True) -> str:
-    """Форматирует число в строку вида '10\xa0171,20\xa0руб'."""
     formatted = f"{amount:,.2f}".replace(",", "\xa0").replace(".", ",")
     return f"{formatted}\xa0руб" if with_suffix else formatted
 
@@ -82,30 +98,47 @@ def decline(n: int, form1: str, form2: str, form5: str) -> str:
 
 
 def amount_in_words(amount: float) -> str:
-    """Преобразует сумму в рубли и копейки прописью."""
     rub = int(amount)
     kop = int(round((amount - rub) * 100))
     if kop == 100:
         rub += 1
         kop = 0
-
     rub_words = num2words(rub, lang="ru").capitalize()
     rub_unit = decline(rub, "рубль", "рубля", "рублей")
     kop_unit = decline(kop, "копейка", "копейки", "копеек")
     return f"{rub_words} {rub_unit} {kop:02d} {kop_unit}"
 
 
+def get_clipboard_text() -> str:
+    text = ""
+    try:
+        win32clipboard.OpenClipboard()
+        if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+            text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+    finally:
+        try:
+            win32clipboard.CloseClipboard()
+        except Exception:
+            pass
+    return text or ""
+
+
+def clear_clipboard():
+    try:
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+    finally:
+        try:
+            win32clipboard.CloseClipboard()
+        except Exception:
+            pass
+
+
 def find_latest_spec(spec_folder: str):
-    """
-    Находит последнюю спецификацию в папке.
-    Понимает форматы: 'сп.520сч.730.xls', 'сп. 1 счет 40.xls', 'сп.2счет 1083.xls',
-    'Спецификация 5.xls' и др. Если по номеру не нашлось — берёт самый свежий .xls/.xlsx.
-    """
     patterns = [
         re.compile(r"сп\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
         re.compile(r"спец(?:ификация)?\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
     ]
-
     matched = []
     all_excel = []
 
@@ -127,20 +160,17 @@ def find_latest_spec(spec_folder: str):
                 break
 
     if matched:
-        # Берём максимальный номер; если номера одинаковые — самый свежий по дате
         matched.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        best_num, _, best_file = matched[0]
-        return best_num, best_file
+        return matched[0][0], matched[0][2]
 
     if all_excel:
         all_excel.sort(key=lambda x: x[0], reverse=True)
         return 0, all_excel[0][1]
 
-    raise FileNotFoundError(f"В папке {spec_folder} вообще нет файлов Excel (.xls / .xlsx).")
+    raise FileNotFoundError(f"В папке {spec_folder} нет файлов Excel (.xls / .xlsx).")
 
 
 def guess_calc_folder(client_name: str, calc_folders: list) -> str:
-    """Подбирает папку в РАСЧЕТЫ по маппингу или похожему названию."""
     mapped = CFG.get("folder_mapping", {}).get(client_name)
     if mapped and mapped in calc_folders:
         return mapped
@@ -155,6 +185,9 @@ def guess_calc_folder(client_name: str, calc_folders: list) -> str:
     return "(не выбрана)"
 
 
+# =============================================================================
+# РАБОТА С 1С (ЧЕРЕЗ БУФЕР ОБМЕНА ПЕЧАТНОЙ ФОРМЫ — БЕЗ ОШИБОК .MXL/.XLSX)
+# =============================================================================
 def find_1c_window():
     desktop = Desktop(backend="uia")
     for w in desktop.windows():
@@ -164,17 +197,20 @@ def find_1c_window():
     return None
 
 
-def export_invoice_from_1c(cfg: dict, invoice_number: str, log_cb) -> str:
-    """Подключается к 1С (или запускает её), находит счёт и сохраняет печатную форму в .xlsx."""
-    log_cb("Ищем открытое окно 1С...")
+def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: bool, log_cb) -> str:
+    log_cb("Ищем окно 1С:Предприятие...")
     win_1c = find_1c_window()
 
     if win_1c is None:
+        if use_open_form:
+            raise RuntimeError(
+                "Окно 1С:Предприятие не найдено на этом компьютере.\n"
+                "Убедись, что программа запущена на том же ПК, где открыта 1С (не через AnyDesk)."
+            )
         log_cb("Запускаем 1С и входим в базу...")
         exe_1c = resolve_1c_exe(cfg.get("1c_exe", ""))
         cmd = f'"{exe_1c}" {cfg["1c_base_args"]}'
         subprocess.Popen(cmd, shell=True)
-
         for _ in range(45):
             time.sleep(2.0)
             win_1c = find_1c_window()
@@ -182,64 +218,72 @@ def export_invoice_from_1c(cfg: dict, invoice_number: str, log_cb) -> str:
                 break
 
     if win_1c is None:
-        raise RuntimeError("Не удалось дождаться открытия окна 1С:Предприятие.")
+        raise RuntimeError(
+            "Не удалось найти или запустить окно 1С:Предприятие.\n"
+            "Важно: SpecBuilder.exe должен запускаться на том же компьютере, где стоит 1С."
+        )
 
     win_1c.set_focus()
-    time.sleep(0.7)
+    time.sleep(0.6)
 
-    log_cb("Открываем «Продажи → Счета покупателям»...")
-    try:
-        win_1c.child_window(title="Продажи", control_type="TabItem").click_input()
+    if not use_open_form:
+        log_cb("Открываем «Продажи → Счета покупателям»...")
+        try:
+            win_1c.child_window(title="Продажи", control_type="TabItem").click_input()
+            time.sleep(0.5)
+            win_1c.child_window(title="Счета покупателям").click_input()
+            time.sleep(1.2)
+        except Exception:
+            pass
+
+        log_cb(f"Ищем счёт № {invoice_number} в 1С...")
+        keyboard.send_keys("^f")
         time.sleep(0.6)
-        win_1c.child_window(title="Счета покупателям").click_input()
+        keyboard.send_keys(str(invoice_number), with_spaces=True)
+        keyboard.send_keys("{ENTER}")
         time.sleep(1.2)
+
+        keyboard.send_keys("{ENTER}")
+        time.sleep(1.8)
+
+        log_cb("Открываем печатную форму «Счет покупателю»...")
+        try:
+            win_1c.child_window(title_re=".*Печать.*").click_input()
+            time.sleep(0.6)
+            keyboard.send_keys("{ENTER}")
+        except Exception:
+            keyboard.send_keys("^p")
+        time.sleep(2.0)
+
+    log_cb("Считываем таблицу из печатной формы 1С...")
+    clear_clipboard()
+    time.sleep(0.2)
+
+    try:
+        rect = win_1c.rectangle()
+        cx = (rect.left + rect.right) // 2
+        cy = (rect.top + rect.bottom) // 2
+        win_1c.click_input(coords=(cx - rect.left, cy - rect.top))
+        time.sleep(0.3)
     except Exception:
         pass
 
-    log_cb(f"Ищем счёт № {invoice_number} в 1С...")
-    keyboard.send_keys("^f")
-    time.sleep(0.6)
-    keyboard.send_keys(str(invoice_number), with_spaces=True)
-    keyboard.send_keys("{ENTER}")
-    time.sleep(1.2)
-
-    keyboard.send_keys("{ENTER}")
-    time.sleep(1.8)
-
-    log_cb("Открываем печатную форму и выгружаем в Excel...")
-    try:
-        win_1c.child_window(title_re=".*Печать.*").click_input()
-        time.sleep(0.6)
-        keyboard.send_keys("{ENTER}")
-    except Exception:
-        keyboard.send_keys("^p")
-
-    time.sleep(2.2)
-
-    tmp_xlsx = os.path.join(tempfile.gettempdir(), f"invoice_{invoice_number}.xlsx")
-    if os.path.exists(tmp_xlsx):
-        os.remove(tmp_xlsx)
-
-    keyboard.send_keys("^s")
-    time.sleep(1.2)
-    keyboard.send_keys(tmp_xlsx, with_spaces=True)
+    keyboard.send_keys("^a")
     time.sleep(0.4)
-    keyboard.send_keys("{ENTER}")
-    time.sleep(2.5)
+    keyboard.send_keys("^c")
+    time.sleep(0.7)
 
-    if not os.path.exists(tmp_xlsx):
+    raw_text = get_clipboard_text()
+    if not raw_text.strip():
         raise RuntimeError(
-            f"Не удалось сохранить печатную форму счёта № {invoice_number} в .xlsx.\n"
-            "Убедись, что счёт с таким номером есть в «Счета покупателям»."
+            "Не удалось скопировать таблицу из 1С.\n"
+            "Попробуй открыть печатную форму счёта в 1С вручную и поставить галочку "
+            "«Печатная форма счёта уже открыта в 1С»."
         )
-    return tmp_xlsx
+    return raw_text
 
 
-def parse_invoice_xlsx(xlsx_path: str) -> dict:
-    """Парсит сохранённую из 1С печатную форму счёта."""
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    ws = wb.active
-
+def parse_invoice_clipboard_text(raw_text: str) -> dict:
     invoice_date = datetime.now().strftime("%d.%m.%Y")
     items = []
     totals = {"no_nds": 0.0, "nds": 0.0, "with_nds": 0.0}
@@ -252,11 +296,11 @@ def parse_invoice_xlsx(xlsx_path: str) -> dict:
     }
 
     in_table = False
-    for row in ws.iter_rows(values_only=True):
-        vals = [v for v in row if v is not None and str(v).strip() != ""]
-        if not vals:
+    for line in raw_text.splitlines():
+        cells = [c.strip() for c in line.split("\t") if c.strip() != ""]
+        if not cells:
             continue
-        joined = " ".join(str(v) for v in vals)
+        joined = " ".join(cells)
 
         m = date_re.search(joined)
         if m:
@@ -265,29 +309,30 @@ def parse_invoice_xlsx(xlsx_path: str) -> dict:
             year = m.group(3)
             invoice_date = f"{day}.{mon}.{year}"
 
-        if "Товары" in joined or ("Наименование" in joined and "Цена" in joined):
+        if ("Товар" in joined or "Наименование" in joined) and "Цена" in joined:
             in_table = True
             continue
 
         if in_table:
-            if "Итого" in joined:
+            if joined.startswith("Итого") or "Итого" in cells[0]:
                 in_table = False
-                totals["no_nds"] = parse_number(vals[-1])
+                totals["no_nds"] = parse_number(cells[-1])
                 continue
-            if isinstance(vals[0], (int, float)) or str(vals[0]).strip().isdigit():
-                if len(vals) >= 6:
-                    items.append({
-                        "name": str(vals[1]).strip(),
-                        "unit": str(vals[2]).strip(),
-                        "qty": parse_number(vals[3]),
-                        "price": parse_number(vals[4]),
-                        "sum": parse_number(vals[5]),
-                    })
+            if cells[0].isdigit() and len(cells) >= 6:
+                term = cells[6] if len(cells) >= 7 else ""
+                items.append({
+                    "name": cells[1],
+                    "unit": cells[2],
+                    "qty": parse_number(cells[3]),
+                    "price": parse_number(cells[4]),
+                    "sum": parse_number(cells[5]),
+                    "term": term,
+                })
 
         if "НДС" in joined and totals["nds"] == 0.0 and "без НДС" not in joined.lower():
-            totals["nds"] = parse_number(vals[-1])
+            totals["nds"] = parse_number(cells[-1])
         elif "Всего к оплате" in joined:
-            totals["with_nds"] = parse_number(vals[-1])
+            totals["with_nds"] = parse_number(cells[-1])
 
     if totals["no_nds"] == 0.0 and items:
         totals["no_nds"] = round(sum(i["sum"] for i in items), 2)
@@ -299,20 +344,41 @@ def parse_invoice_xlsx(xlsx_path: str) -> dict:
     return {"date": invoice_date, "items": items, "totals": totals}
 
 
+# =============================================================================
+# ПОИСК НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ"
+# =============================================================================
+def extract_board_tokens(board_name: str) -> list:
+    stop_words = {"печ.платы", "печатные", "платы", "плата", "ps", "пп", "шт"}
+    raw_tokens = re.split(r"[\s()\[\],;]+", board_name)
+    tokens = []
+    for t in raw_tokens:
+        clean = t.strip().lower()
+        if len(clean) >= 3 and clean not in stop_words:
+            tokens.append(clean)
+    return tokens
+
+
 def find_calc_bottom_row(calc_folder: str, board_name: str) -> list:
-    """Ищет файл расчёта по коду платы и забирает нижнюю заполненную строку (6 ячеек J-O)."""
     if not calc_folder or not os.path.isdir(calc_folder):
         return [""] * 6
 
-    code = board_name.split()[0].strip().lower()
+    tokens = extract_board_tokens(board_name)
+    if not tokens:
+        return [""] * 6
+
     target_file = None
+    best_hits = 0
 
     for fname in os.listdir(calc_folder):
         if fname.startswith("~$"):
             continue
-        if fname.lower().endswith((".xls", ".xlsx")) and code in fname.lower():
+        if not fname.lower().endswith((".xls", ".xlsx")):
+            continue
+        low_name = fname.lower()
+        hits = sum(1 for tok in tokens if tok in low_name)
+        if hits > best_hits:
+            best_hits = hits
             target_file = os.path.join(calc_folder, fname)
-            break
 
     if not target_file:
         return [""] * 6
@@ -337,12 +403,16 @@ def find_calc_bottom_row(calc_folder: str, board_name: str) -> list:
     return [""] * 6
 
 
+# =============================================================================
+# СБОРКА ИТОГОВОГО EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ
+# =============================================================================
 def build_specification(
     cfg: dict,
     client_name: str,
     calc_folder_name: str,
     invoice_num: str,
     new_spec_num: int,
+    use_open_form: bool,
     log_cb,
 ) -> str:
     spec_folder = os.path.join(cfg["specs_root"], client_name)
@@ -352,21 +422,24 @@ def build_specification(
         else ""
     )
 
-    log_cb("Копируем шаблон последней спецификации...")
+    log_cb("Ищем последнюю спецификацию и делаем копию...")
     _, last_file = find_latest_spec(spec_folder)
     ext = os.path.splitext(last_file)[1]
     new_file = os.path.join(spec_folder, f"сп.{new_spec_num} сч.{invoice_num}{ext}")
     shutil.copy2(last_file, new_file)
 
-    tmp_xlsx = export_invoice_from_1c(cfg, invoice_num, log_cb)
+    raw_text = grab_text_from_1c_print_form(cfg, invoice_num, use_open_form, log_cb)
 
-    log_cb("Разбираем позиции из счёта 1С...")
-    inv = parse_invoice_xlsx(tmp_xlsx)
+    log_cb("Разбираем строки счёта...")
+    inv = parse_invoice_clipboard_text(raw_text)
     items = inv["items"]
     if not items:
-        raise RuntimeError("Не удалось распознать позиции товаров в печатной форме счёта.")
+        raise RuntimeError(
+            "Не удалось распознать товары в скопированном тексте 1С.\n"
+            "Убедись, что в 1С открыта именно печатная форма «Счет покупателю»."
+        )
 
-    log_cb("Заполняем спецификацию в Excel...")
+    log_cb("Заполняем Excel и подтягиваем параметры из РАСЧЕТЫ...")
     pythoncom.CoInitialize()
     try:
         excel = win32com.client.Dispatch("Excel.Application")
@@ -398,15 +471,15 @@ def build_specification(
 
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
-            ws.Cells(r, 1).Value = idx
-            ws.Cells(r, 2).Value = item["name"]
-            ws.Cells(r, 3).Value = ""
-            ws.Cells(r, 4).Value = ""
-            ws.Cells(r, 5).Value = item["unit"]
-            ws.Cells(r, 6).Value = item["qty"]
-            ws.Cells(r, 7).Value = item["price"]
-            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
-            ws.Cells(r, 9).Value = ""
+            ws.Cells(r, 1).Value = idx                                   # A: № п/п
+            ws.Cells(r, 2).Value = item["name"]                          # B: Наименование
+            ws.Cells(r, 3).Value = ""                                    # C: Зав. № заказа
+            ws.Cells(r, 4).Value = item["term"]                          # D: Срок пост.
+            ws.Cells(r, 5).Value = item["unit"]                          # E: Ед. изм.
+            ws.Cells(r, 6).Value = item["qty"]                           # F: Кол-во
+            ws.Cells(r, 7).Value = item["price"]                         # G: Цена
+            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)   # H: Сумма
+            ws.Cells(r, 9).Value = ""                                    # I: Площадь
 
             tech = find_calc_bottom_row(calc_folder, item["name"])
             for offset, val in enumerate(tech):
@@ -426,200 +499,477 @@ def build_specification(
     return new_file
 
 
-def run_gui():
-    try:
-        all_clients = sorted(
-            d for d in os.listdir(CFG["specs_root"])
-            if os.path.isdir(os.path.join(CFG["specs_root"], d))
+# =============================================================================
+# СОВРЕМЕННЫЙ ТЁМНЫЙ ИНТЕРФЕЙС (CUSTOMTKINTER)
+# =============================================================================
+class SpecBuilderApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("green")
+
+        self.title(f'{CFG["company_name"]} — Сборка спецификаций')
+        self.geometry("1160x700")
+        self.minsize(980, 620)
+        self.configure(fg_color=BG_APP)
+
+        self.all_clients = []
+        self.all_calc_folders = []
+        self.selected_client = None
+        self.client_buttons = {}
+
+        self._load_folders()
+        self._build_layout()
+        self._render_client_list("")
+
+    def _load_folders(self):
+        try:
+            self.all_clients = sorted(
+                d for d in os.listdir(CFG["specs_root"])
+                if os.path.isdir(os.path.join(CFG["specs_root"], d))
+            )
+        except Exception as e:
+            messagebox.showerror("Нет доступа к папке Спецификаций", f"{CFG['specs_root']}\n\n{e}")
+            self.all_clients = []
+
+        try:
+            self.all_calc_folders = sorted(
+                d for d in os.listdir(CFG["calc_root"])
+                if os.path.isdir(os.path.join(CFG["calc_root"], d))
+            )
+        except Exception:
+            self.all_calc_folders = []
+
+    def _build_layout(self):
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(2, weight=0)
+        self.grid_rowconfigure(1, weight=1)
+
+        # === ВЕРХНЯЯ ШАПКА ===
+        header = ctk.CTkFrame(
+            self, height=64, fg_color=BG_SIDEBAR, corner_radius=0,
+            border_width=1, border_color=BORDER_CARD
         )
-    except Exception as e:
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror("Нет доступа к сетевой папке", f"{CFG['specs_root']}\n\n{e}")
-        return
+        header.grid(row=0, column=0, columnspan=3, sticky="ew")
+        header.grid_columnconfigure(1, weight=1)
 
-    try:
-        all_calc_folders = sorted(
-            d for d in os.listdir(CFG["calc_root"])
-            if os.path.isdir(os.path.join(CFG["calc_root"], d))
+        brand_frame = ctk.CTkFrame(header, fg_color="transparent")
+        brand_frame.grid(row=0, column=0, padx=18, pady=10, sticky="w")
+
+        ctk.CTkLabel(
+            brand_frame,
+            text="ПП",
+            width=40,
+            height=40,
+            corner_radius=10,
+            fg_color=ACCENT_GREEN,
+            text_color="#052e16",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+        ).pack(side="left", padx=(0, 12))
+
+        title_box = ctk.CTkFrame(brand_frame, fg_color="transparent")
+        title_box.pack(side="left")
+        ctk.CTkLabel(
+            title_box,
+            text=CFG["company_name"],
+            font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
+            text_color=TEXT_MAIN,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            title_box,
+            text="Автоматическая сборка спецификаций (1С + Расчёты)",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=TEXT_MUTED,
+        ).pack(anchor="w")
+
+        # СПРАВА: Мамонтова Людмила Давыдовна
+        user_badge = ctk.CTkFrame(
+            header,
+            fg_color="#1d2430",
+            corner_radius=10,
+            border_width=1,
+            border_color="#2f3a4c",
         )
-    except Exception:
-        all_calc_folders = []
+        user_badge.grid(row=0, column=2, padx=18, pady=10, sticky="e")
+        ctk.CTkLabel(
+            user_badge, text="●", text_color=ACCENT_GREEN, font=ctk.CTkFont(size=12)
+        ).pack(side="left", padx=(12, 6), pady=8)
+        ctk.CTkLabel(
+            user_badge,
+            text=CFG["employee_name"],
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=TEXT_MAIN,
+        ).pack(side="left", padx=(0, 14), pady=8)
 
-    root = tk.Tk()
-    root.title("Сборка спецификации (1С + Расчёты)")
-    root.geometry("560x540")
-    root.minsize(520, 500)
+        # === ЛЕВАЯ ПАНЕЛЬ НАВИГАЦИИ ===
+        left_nav = ctk.CTkFrame(
+            self, width=185, fg_color=BG_SIDEBAR, corner_radius=0,
+            border_width=1, border_color=BORDER_CARD
+        )
+        left_nav.grid(row=1, column=0, sticky="ns")
+        left_nav.grid_propagate(False)
 
-    pad = {"padx": 14}
+        ctk.CTkLabel(
+            left_nav, text="РАЗДЕЛЫ", font=ctk.CTkFont(size=11, weight="bold"), text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=16, pady=(18, 8))
 
-    # --- 1. Поиск и выбор фирмы ---
-    tk.Label(root, text="Поиск фирмы (в Спецификациях):", font=("Segoe UI", 9, "bold")).pack(
-        anchor="w", pady=(12, 2), **pad
-    )
-    search_var = tk.StringVar()
-    search_entry = tk.Entry(root, textvariable=search_var, font=("Segoe UI", 10))
-    search_entry.pack(fill="x", **pad)
+        ctk.CTkButton(
+            left_nav,
+            text="📄  Спецификация",
+            anchor="w",
+            height=40,
+            fg_color="#163529",
+            hover_color="#1d4737",
+            text_color="#34d399",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(fill="x", padx=12, pady=4)
 
-    list_frame = tk.Frame(root)
-    list_frame.pack(fill="both", expand=True, pady=(6, 6), **pad)
+        ctk.CTkButton(
+            left_nav,
+            text="📁  Папка Спец.",
+            anchor="w",
+            height=38,
+            fg_color="transparent",
+            hover_color="#1e2530",
+            text_color=TEXT_MAIN,
+            font=ctk.CTkFont(size=13),
+            command=self._open_selected_spec_folder,
+        ).pack(fill="x", padx=12, pady=4)
 
-    scrollbar = tk.Scrollbar(list_frame)
-    scrollbar.pack(side="right", fill="y")
+        ctk.CTkButton(
+            left_nav,
+            text="📊  Папка Расчёты",
+            anchor="w",
+            height=38,
+            fg_color="transparent",
+            hover_color="#1e2530",
+            text_color=TEXT_MAIN,
+            font=ctk.CTkFont(size=13),
+            command=self._open_selected_calc_folder,
+        ).pack(fill="x", padx=12, pady=4)
 
-    listbox = tk.Listbox(
-        list_frame,
-        height=8,
-        font=("Segoe UI", 10),
-        yscrollcommand=scrollbar.set,
-        exportselection=False,
-    )
-    listbox.pack(side="left", fill="both", expand=True)
-    scrollbar.config(command=listbox.yview)
+        ctk.CTkButton(
+            left_nav,
+            text="🔄  Обновить списки",
+            anchor="w",
+            height=38,
+            fg_color="transparent",
+            hover_color="#1e2530",
+            text_color=TEXT_MUTED,
+            font=ctk.CTkFont(size=12),
+            command=self._reload_all_folders,
+        ).pack(fill="x", padx=12, pady=(16, 4))
 
-    # Информация о найденном шаблоне
-    info_var = tk.StringVar(value="Выбери фирму из списка выше")
-    tk.Label(root, textvariable=info_var, fg="#333333", anchor="w", justify="left").pack(
-        fill="x", pady=(0, 8), **pad
-    )
+        self.status_badge = ctk.CTkLabel(
+            left_nav,
+            text="● Готов к работе",
+            text_color=ACCENT_GREEN,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            wraplength=155,
+            justify="left",
+        )
+        self.status_badge.pack(side="bottom", anchor="w", padx=14, pady=16)
 
-    # --- 2. Папка в РАСЧЕТЫ ---
-    tk.Label(root, text="Папка фирмы в РАСЧЕТЫ:", font=("Segoe UI", 9, "bold")).pack(
-        anchor="w", pady=(2, 2), **pad
-    )
-    calc_var = tk.StringVar(value="(не выбрана)")
-    calc_combo = ttk.Combobox(
-        root,
-        textvariable=calc_var,
-        values=["(не выбрана)"] + all_calc_folders,
-        font=("Segoe UI", 10),
-    )
-    calc_combo.pack(fill="x", **pad)
+        # === ЦЕНТРАЛЬНАЯ РАБОЧАЯ ОБЛАСТЬ ===
+        self.center = ctk.CTkScrollableFrame(self, fg_color=BG_APP, corner_radius=0)
+        self.center.grid(row=1, column=1, sticky="nsew", padx=14, pady=12)
 
-    # --- 3. Номер спецификации и номер счёта ---
-    row_frame = tk.Frame(root)
-    row_frame.pack(fill="x", pady=(10, 6), **pad)
+        # Карточка 1: Фирма и шаблон
+        card1 = ctk.CTkFrame(
+            self.center, fg_color=BG_CARD, corner_radius=12, border_width=1, border_color=BORDER_CARD
+        )
+        card1.pack(fill="x", pady=(0, 12))
 
-    left_col = tk.Frame(row_frame)
-    left_col.pack(side="left", fill="x", expand=True, padx=(0, 8))
-    tk.Label(left_col, text="Новый № спецификации:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    spec_num_var = tk.StringVar()
-    tk.Entry(left_col, textvariable=spec_num_var, font=("Segoe UI", 10)).pack(fill="x", pady=(2, 0))
+        ctk.CTkLabel(
+            card1, text="1. ФИРМА И ШАБЛОН СПЕЦИФИКАЦИИ",
+            font=ctk.CTkFont(size=12, weight="bold"), text_color=ACCENT_AMBER
+        ).pack(anchor="w", padx=16, pady=(14, 6))
 
-    right_col = tk.Frame(row_frame)
-    right_col.pack(side="left", fill="x", expand=True, padx=(8, 0))
-    tk.Label(right_col, text="Номер счёта в 1С:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    inv_var = tk.StringVar()
-    inv_entry = tk.Entry(right_col, textvariable=inv_var, font=("Segoe UI", 10))
-    inv_entry.pack(fill="x", pady=(2, 0))
+        self.selected_firm_lbl = ctk.CTkLabel(
+            card1, text="Выберите фирму в списке справа →",
+            font=ctk.CTkFont(size=16, weight="bold"), text_color=TEXT_MAIN
+        )
+        self.selected_firm_lbl.pack(anchor="w", padx=16, pady=(0, 4))
 
-    # --- 4. Кнопки и статус ---
-    btn_frame = tk.Frame(root)
-    btn_frame.pack(fill="x", pady=(10, 6), **pad)
+        self.last_file_lbl = ctk.CTkLabel(
+            card1, text="Последний файл: —",
+            font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
+        )
+        self.last_file_lbl.pack(anchor="w", padx=16, pady=(0, 12))
 
-    start_btn = tk.Button(
-        btn_frame,
-        text="Собрать спецификацию",
-        font=("Segoe UI", 10, "bold"),
-        bg="#1e7e34",
-        fg="white",
-        height=2,
-    )
-    start_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkLabel(
+            card1, text="Папка фирмы в «РАСЧЕТЫ» (для подстановки нижней строки J–O):",
+            font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
+        ).pack(anchor="w", padx=16, pady=(0, 4))
 
-    def open_selected_folder():
-        sel = listbox.curselection()
-        if not sel:
+        self.calc_var = ctk.StringVar(value="(не выбрана)")
+        self.calc_combo = ctk.CTkComboBox(
+            card1,
+            variable=self.calc_var,
+            values=["(не выбрана)"] + self.all_calc_folders,
+            height=36,
+            fg_color=BG_INPUT,
+            border_color=BORDER_CARD,
+            button_color="#2a3342",
+            dropdown_fg_color=BG_CARD,
+        )
+        self.calc_combo.pack(fill="x", padx=16, pady=(0, 16))
+
+        # Карточка 2: Номер спецификации и счёт
+        card2 = ctk.CTkFrame(
+            self.center, fg_color=BG_CARD, corner_radius=12, border_width=1, border_color=BORDER_CARD
+        )
+        card2.pack(fill="x", pady=(0, 12))
+
+        ctk.CTkLabel(
+            card2, text="2. ПАРАМЕТРЫ СПЕЦИФИКАЦИИ И СЧЁТА 1С",
+            font=ctk.CTkFont(size=12, weight="bold"), text_color=ACCENT_BLUE
+        ).pack(anchor="w", padx=16, pady=(14, 10))
+
+        grid2 = ctk.CTkFrame(card2, fg_color="transparent")
+        grid2.pack(fill="x", padx=16, pady=(0, 14))
+        grid2.grid_columnconfigure(0, weight=1)
+        grid2.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            grid2, text="Новый № спецификации:", font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+        ctk.CTkLabel(
+            grid2, text="Номер счёта в 1С (например, 319):", font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
+        ).grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
+
+        self.spec_num_var = ctk.StringVar()
+        ctk.CTkEntry(
+            grid2, textvariable=self.spec_num_var, height=38, fg_color=BG_INPUT,
+            border_color=BORDER_CARD, font=ctk.CTkFont(size=14, weight="bold")
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 8))
+
+        self.inv_var = ctk.StringVar()
+        ctk.CTkEntry(
+            grid2, textvariable=self.inv_var, placeholder_text="319", height=38, fg_color=BG_INPUT,
+            border_color=BORDER_CARD, font=ctk.CTkFont(size=14, weight="bold")
+        ).grid(row=1, column=1, sticky="ew", padx=(8, 0))
+
+        self.use_open_form_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            card2,
+            text="Печатная форма счёта уже открыта в 1С (забрать сразу, без поиска)",
+            variable=self.use_open_form_var,
+            font=ctk.CTkFont(size=12),
+            text_color=TEXT_MAIN,
+            fg_color=ACCENT_GREEN,
+            hover_color=ACCENT_GREEN_HOVER,
+        ).pack(anchor="w", padx=16, pady=(0, 16))
+
+        # Карточка 3: Журнал выполнения
+        card3 = ctk.CTkFrame(
+            self.center, fg_color=BG_CARD, corner_radius=12, border_width=1, border_color=BORDER_CARD
+        )
+        card3.pack(fill="both", expand=True, pady=(0, 12))
+
+        ctk.CTkLabel(
+            card3, text="3. ХОД ВЫПОЛНЕНИЯ",
+            font=ctk.CTkFont(size=12, weight="bold"), text_color=ACCENT_GREEN
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+
+        self.log_box = ctk.CTkTextbox(
+            card3,
+            height=135,
+            fg_color=BG_INPUT,
+            border_width=1,
+            border_color=BORDER_CARD,
+            font=ctk.CTkFont(family="Consolas", size=12),
+            text_color="#cbd5e1",
+        )
+        self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 14))
+        self._append_log("Готово. Выберите фирму справа, введите номер счёта и нажмите зелёную кнопку.")
+
+        self.build_btn = ctk.CTkButton(
+            self.center,
+            text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL",
+            height=48,
+            corner_radius=10,
+            fg_color=ACCENT_GREEN,
+            hover_color=ACCENT_GREEN_HOVER,
+            text_color="#052e16",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            command=self._on_start_build,
+        )
+        self.build_btn.pack(fill="x", pady=(4, 8))
+
+        # === ПРАВАЯ ПАНЕЛЬ: СПРАВОЧНИК ФИРМ ===
+        right_panel = ctk.CTkFrame(
+            self, width=300, fg_color=BG_SIDEBAR, corner_radius=0,
+            border_width=1, border_color=BORDER_CARD
+        )
+        right_panel.grid(row=1, column=2, sticky="ns")
+        right_panel.grid_propagate(False)
+
+        self.firms_header_lbl = ctk.CTkLabel(
+            right_panel,
+            text=f"Справочник фирм ({len(self.all_clients)})",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=ACCENT_AMBER,
+        )
+        self.firms_header_lbl.pack(anchor="w", padx=14, pady=(14, 8))
+
+        self.search_var = ctk.StringVar()
+        self.search_var.trace_add("write", lambda *_: self._render_client_list(self.search_var.get()))
+        ctk.CTkEntry(
+            right_panel,
+            textvariable=self.search_var,
+            placeholder_text="🔍 Поиск фирмы...",
+            height=36,
+            fg_color=BG_INPUT,
+            border_color=BORDER_CARD,
+        ).pack(fill="x", padx=14, pady=(0, 10))
+
+        self.clients_scroll = ctk.CTkScrollableFrame(right_panel, fg_color="transparent")
+        self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 10))
+
+    def _append_log(self, msg: str):
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", f"[{ts}] {msg}\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def _set_status(self, msg: str, color: str = ACCENT_GREEN):
+        self.after(0, lambda: self.status_badge.configure(text=f"● {msg}", text_color=color))
+        self.after(0, lambda: self._append_log(msg))
+
+    def _render_client_list(self, query: str):
+        for widget in self.clients_scroll.winfo_children():
+            widget.destroy()
+        self.client_buttons.clear()
+
+        q = query.strip().lower()
+        filtered = [c for c in self.all_clients if q in c.lower()]
+        self.firms_header_lbl.configure(text=f"Справочник фирм ({len(filtered)})")
+
+        for name in filtered:
+            is_sel = name == self.selected_client
+            btn = ctk.CTkButton(
+                self.clients_scroll,
+                text=name,
+                anchor="w",
+                height=36,
+                corner_radius=8,
+                fg_color="#163529" if is_sel else BG_CARD,
+                hover_color="#1f2937",
+                border_width=1,
+                border_color=ACCENT_GREEN if is_sel else BORDER_CARD,
+                text_color="#34d399" if is_sel else TEXT_MAIN,
+                font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
+                command=lambda n=name: self._select_client(n),
+            )
+            btn.pack(fill="x", pady=3, padx=4)
+            self.client_buttons[name] = btn
+
+    def _select_client(self, client_name: str):
+        self.selected_client = client_name
+        self.selected_firm_lbl.configure(text=client_name)
+
+        for name, btn in self.client_buttons.items():
+            is_sel = name == client_name
+            btn.configure(
+                fg_color="#163529" if is_sel else BG_CARD,
+                border_color=ACCENT_GREEN if is_sel else BORDER_CARD,
+                text_color="#34d399" if is_sel else TEXT_MAIN,
+                font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
+            )
+
+        spec_folder = os.path.join(CFG["specs_root"], client_name)
+        try:
+            last_num, last_file = find_latest_spec(spec_folder)
+            self.spec_num_var.set(str(last_num + 1))
+            self.last_file_lbl.configure(
+                text=f"Последний файл: {os.path.basename(last_file)}",
+                text_color="#94a3b8",
+            )
+        except Exception as e:
+            self.spec_num_var.set("1")
+            self.last_file_lbl.configure(text=f"Внимание: {e}", text_color="#f87171")
+
+        self.calc_var.set(guess_calc_folder(client_name, self.all_calc_folders))
+
+    def _open_selected_spec_folder(self):
+        if not self.selected_client:
+            os.startfile(CFG["specs_root"])
             return
-        folder = os.path.join(CFG["specs_root"], listbox.get(sel[0]))
+        folder = os.path.join(CFG["specs_root"], self.selected_client)
         if os.path.isdir(folder):
             os.startfile(folder)
 
-    tk.Button(btn_frame, text="Открыть папку", command=open_selected_folder, height=2, width=16).pack(
-        side="right"
-    )
+    def _open_selected_calc_folder(self):
+        calc = self.calc_var.get().strip()
+        if calc and calc != "(не выбрана)":
+            folder = os.path.join(CFG["calc_root"], calc)
+            if os.path.isdir(folder):
+                os.startfile(folder)
+                return
+        if os.path.isdir(CFG["calc_root"]):
+            os.startfile(CFG["calc_root"])
 
-    status_var = tk.StringVar(value="Готов к работе.")
-    tk.Label(root, textvariable=status_var, fg="#0055aa", anchor="w").pack(fill="x", pady=(2, 10), **pad)
+    def _reload_all_folders(self):
+        self._load_folders()
+        self.calc_combo.configure(values=["(не выбрана)"] + self.all_calc_folders)
+        self._render_client_list(self.search_var.get())
+        self._append_log("Списки папок обновлены.")
 
-    # --- Логика фильтрации списка и автоподстановки ---
-    def refresh_list(*_):
-        query = search_var.get().strip().lower()
-        listbox.delete(0, tk.END)
-        for name in all_clients:
-            if query in name.lower():
-                listbox.insert(tk.END, name)
-        if listbox.size() == 1:
-            listbox.selection_set(0)
-            on_select_client()
-
-    def on_select_client(_event=None):
-        sel = listbox.curselection()
-        if not sel:
+    def _on_start_build(self):
+        if not self.selected_client:
+            messagebox.showwarning("Внимание", "Сначала выберите фирму в списке справа.")
             return
-        client = listbox.get(sel[0])
-        spec_folder = os.path.join(CFG["specs_root"], client)
 
-        try:
-            last_num, last_file = find_latest_spec(spec_folder)
-            spec_num_var.set(str(last_num + 1))
-            info_var.set(f"Последний файл: {os.path.basename(last_file)}")
-        except Exception as e:
-            spec_num_var.set("1")
-            info_var.set(f"Внимание: {e}")
-
-        calc_var.set(guess_calc_folder(client, all_calc_folders))
-
-    search_var.trace_add("write", refresh_list)
-    listbox.bind("<<ListboxSelect>>", on_select_client)
-    refresh_list()
-
-    def on_start():
-        sel = listbox.curselection()
-        if not sel:
-            messagebox.showwarning("Внимание", "Выбери фирму из списка.")
-            return
-        client = listbox.get(sel[0])
-        inv_num = clean_invoice_number(inv_var.get())
+        inv_num = clean_invoice_number(self.inv_var.get())
         if not inv_num:
-            messagebox.showwarning("Внимание", "Введи номер счёта из 1С (например, 40 или 730).")
+            messagebox.showwarning("Внимание", "Введите номер счёта из 1С (например, 319).")
             return
+
         try:
-            new_spec_num = int(spec_num_var.get().strip())
+            new_spec_num = int(self.spec_num_var.get().strip())
         except ValueError:
             messagebox.showwarning("Внимание", "Номер спецификации должен быть числом.")
             return
 
-        calc_folder_name = calc_var.get().strip()
-        start_btn.config(state="disabled")
-
-        def set_status(msg: str):
-            root.after(0, lambda: status_var.set(msg))
+        calc_folder_name = self.calc_var.get().strip()
+        use_open = self.use_open_form_var.get()
+        self.build_btn.configure(state="disabled", text="ВЫПОЛНЯЕТСЯ СБОРКА...")
 
         def worker():
             try:
                 res = build_specification(
-                    CFG, client, calc_folder_name, inv_num, new_spec_num, set_status
+                    CFG,
+                    self.selected_client,
+                    calc_folder_name,
+                    inv_num,
+                    new_spec_num,
+                    use_open,
+                    lambda m: self._set_status(m, ACCENT_AMBER),
                 )
-                set_status("Готово!")
-                root.after(
+                self._set_status("Готово! Спецификация открыта в Excel.", ACCENT_GREEN)
+                self.after(
                     0,
                     lambda: messagebox.showinfo(
                         "Готово", f"Спецификация собрана и открыта в Excel:\n{res}"
                     ),
                 )
             except Exception as e:
-                set_status("Ошибка.")
-                root.after(0, lambda err=str(e): messagebox.showerror("Ошибка", err))
+                self._set_status(f"Ошибка: {e}", "#f87171")
+                self.after(0, lambda err=str(e): messagebox.showerror("Ошибка", err))
             finally:
-                root.after(0, lambda: start_btn.config(state="normal"))
+                self.after(
+                    0,
+                    lambda: self.build_btn.configure(
+                        state="normal", text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL"
+                    ),
+                )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    start_btn.config(command=on_start)
-    search_entry.focus_set()
-    root.mainloop()
-
 
 if __name__ == "__main__":
-    run_gui()
+    app = SpecBuilderApp()
+    app.mainloop()
