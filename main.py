@@ -1,9 +1,7 @@
-import json
 import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import tkinter as tk
@@ -17,28 +15,20 @@ from num2words import num2words
 from pywinauto import Desktop, keyboard
 
 
-def get_app_dir() -> str:
-    """Возвращает папку, в которой лежит SpecBuilder.exe (или main.py)."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-CONFIG_PATH = os.path.join(get_app_dir(), "config.json")
-
-
-def load_config() -> dict:
-    if not os.path.exists(CONFIG_PATH):
-        raise FileNotFoundError(
-            f"Не найден файл настроек:\n{CONFIG_PATH}\n\n"
-            "Положи config.json в ту же папку, где лежит SpecBuilder.exe."
-        )
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+# Все настройки, логин, пароль и пути зашиты прямо здесь
+CFG = {
+    "1c_exe": r"C:\Program Files\1cv8\common\1cestart.exe",
+    "1c_base_args": 'ENTERPRISE /S"DB01\\pp_buh_new" /N"МамонтоваЛД" /P"mamon123"',
+    "specs_root": r"\\Fs01\obmen\ВП\Спецификации 2019 Новая форма",
+    "calc_root": r"\\Fs01\obmen\РАСЧЕТЫ",
+    "folder_mapping": {
+        "Электроприбор": "Elektropribor_K",
+    },
+}
 
 
 def resolve_1c_exe(configured_path: str) -> str:
-    """Проверяет путь к 1cestart.exe и при необходимости подхватывает Program Files (x86)."""
+    """Находит 1cestart.exe в Program Files или Program Files (x86)."""
     candidates = [
         configured_path,
         r"C:\Program Files\1cv8\common\1cestart.exe",
@@ -47,9 +37,7 @@ def resolve_1c_exe(configured_path: str) -> str:
     for path in candidates:
         if path and os.path.exists(path):
             return path
-    raise FileNotFoundError(
-        "Не найден 1cestart.exe. Проверь путь в поле '1c_exe' внутри config.json."
-    )
+    raise FileNotFoundError("Не найден 1cestart.exe на этом компьютере.")
 
 
 def parse_number(val) -> float:
@@ -146,10 +134,7 @@ def export_invoice_from_1c(cfg: dict, invoice_number: str) -> str:
                 break
 
     if win_1c is None:
-        raise RuntimeError(
-            "Не удалось дождаться открытия окна 1С:Предприятие.\n"
-            "Проверь логин, пароль и адрес базы в config.json."
-        )
+        raise RuntimeError("Не удалось дождаться открытия окна 1С:Предприятие.")
 
     win_1c.set_focus()
     time.sleep(0.7)
@@ -258,7 +243,6 @@ def parse_invoice_xlsx(xlsx_path: str) -> dict:
         elif "Всего к оплате" in joined:
             totals["with_nds"] = parse_number(vals[-1])
 
-    # Если итоги не считались из текста — считаем сами по позициям (ставка НДС 22%)
     if totals["no_nds"] == 0.0 and items:
         totals["no_nds"] = round(sum(i["sum"] for i in items), 2)
     if totals["nds"] == 0.0 and totals["no_nds"] > 0:
@@ -328,11 +312,9 @@ def build_specification(cfg: dict, client_name: str, invoice_num: str) -> str:
     wb = excel.Workbooks.Open(new_file)
     ws = wb.Sheets(1)
 
-    # Обновляем шапку
     ws.Range("O1").Value = f"Приложение № {new_num}"
     ws.Range("A4").Value = f"Спецификация № {new_num} от {inv['date']} г."
 
-    # Находим строку "Итого без НДС:"
     start_row = 9
     total_row = start_row
     while total_row < 150:
@@ -344,7 +326,6 @@ def build_specification(cfg: dict, client_name: str, invoice_num: str) -> str:
     existing_rows = total_row - start_row
     needed_rows = len(items)
 
-    # Подгоняем количество строк под число позиций в счёте
     if needed_rows > existing_rows:
         for _ in range(needed_rows - existing_rows):
             ws.Rows(start_row + 1).Insert()
@@ -353,24 +334,22 @@ def build_specification(cfg: dict, client_name: str, invoice_num: str) -> str:
         for _ in range(existing_rows - needed_rows):
             ws.Rows(start_row + needed_rows).Delete()
 
-    # Заполняем позиции (столбцы A-O)
     for idx, item in enumerate(items, start=1):
         r = start_row + idx - 1
-        ws.Cells(r, 1).Value = idx                                   # A: № п/п
-        ws.Cells(r, 2).Value = item["name"]                          # B: Наименование
-        ws.Cells(r, 3).Value = ""                                    # C: Зав. № заказа
-        ws.Cells(r, 4).Value = ""                                    # D: Срок пост.
-        ws.Cells(r, 5).Value = item["unit"]                          # E: Ед. изм.
-        ws.Cells(r, 6).Value = item["qty"]                           # F: Кол-во
-        ws.Cells(r, 7).Value = item["price"]                         # G: Цена
-        ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)   # H: Сумма
-        ws.Cells(r, 9).Value = ""                                    # I: Площадь
+        ws.Cells(r, 1).Value = idx
+        ws.Cells(r, 2).Value = item["name"]
+        ws.Cells(r, 3).Value = ""
+        ws.Cells(r, 4).Value = ""
+        ws.Cells(r, 5).Value = item["unit"]
+        ws.Cells(r, 6).Value = item["qty"]
+        ws.Cells(r, 7).Value = item["price"]
+        ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
+        ws.Cells(r, 9).Value = ""
 
         tech = find_calc_bottom_row(calc_folder, item["name"])
         for offset, val in enumerate(tech):
             ws.Cells(r, 10 + offset).Value = val
 
-    # Обновляем итоги и суммы прописью
     new_total_row = start_row + needed_rows
     ws.Cells(new_total_row, 8).Value = format_rub_text(inv["totals"]["no_nds"], True)
     ws.Cells(new_total_row + 2, 8).Value = format_rub_text(inv["totals"]["nds"], True)
@@ -384,22 +363,14 @@ def build_specification(cfg: dict, client_name: str, invoice_num: str) -> str:
 
 def run_gui():
     try:
-        cfg = load_config()
-    except Exception as e:
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror("Ошибка конфигурации", str(e))
-        return
-
-    try:
         clients = sorted(
-            d for d in os.listdir(cfg["specs_root"])
-            if os.path.isdir(os.path.join(cfg["specs_root"], d))
+            d for d in os.listdir(CFG["specs_root"])
+            if os.path.isdir(os.path.join(CFG["specs_root"], d))
         )
     except Exception as e:
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("Нет доступа к сетевой папке", f"{cfg['specs_root']}\n\n{e}")
+        messagebox.showerror("Нет доступа к сетевой папке", f"{CFG['specs_root']}\n\n{e}")
         return
 
     root = tk.Tk()
@@ -422,7 +393,7 @@ def run_gui():
             messagebox.showwarning("Внимание", "Выбери контрагента и введи номер счёта.")
             return
         try:
-            res = build_specification(cfg, client, inv_num)
+            res = build_specification(CFG, client, inv_num)
             messagebox.showinfo("Готово", f"Спецификация собрана и открыта в Excel:\n{res}")
         except Exception as e:
             messagebox.showerror("Ошибка", str(e))
