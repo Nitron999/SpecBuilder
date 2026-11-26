@@ -3,12 +3,14 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
 import openpyxl
+import pythoncom
 import win32com.client
 import xlrd
 from num2words import num2words
@@ -38,6 +40,13 @@ def resolve_1c_exe(configured_path: str) -> str:
         if path and os.path.exists(path):
             return path
     raise FileNotFoundError("Не найден 1cestart.exe на этом компьютере.")
+
+
+def clean_invoice_number(raw: str) -> str:
+    """Превращает 'счет 40', 'сч. 730', '№ 0083' в чистый номер ('40', '730', '0083')."""
+    s = raw.strip()
+    s = re.sub(r"^(?:сч[её]т|сч\.?|№)\s*", "", s, flags=re.IGNORECASE).strip()
+    return s
 
 
 def parse_number(val) -> float:
@@ -87,26 +96,63 @@ def amount_in_words(amount: float) -> str:
 
 
 def find_latest_spec(spec_folder: str):
-    """Находит файл сп.<N>сч.<M>.xls с максимальным номером спецификации N."""
-    pattern = re.compile(r"сп\.(\d+)[сc]ч\.(\d+)", re.IGNORECASE)
-    best_num = -1
-    best_file = None
+    """
+    Находит последнюю спецификацию в папке.
+    Понимает форматы: 'сп.520сч.730.xls', 'сп. 1 счет 40.xls', 'сп.2счет 1083.xls',
+    'Спецификация 5.xls' и др. Если по номеру не нашлось — берёт самый свежий .xls/.xlsx.
+    """
+    patterns = [
+        re.compile(r"сп\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
+        re.compile(r"спец(?:ификация)?\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
+    ]
+
+    matched = []
+    all_excel = []
 
     for fname in os.listdir(spec_folder):
+        if fname.startswith("~$"):
+            continue
         if not fname.lower().endswith((".xls", ".xlsx")):
             continue
-        m = pattern.search(fname)
-        if m:
-            num = int(m.group(1))
-            if num > best_num:
-                best_num = num
-                best_file = os.path.join(spec_folder, fname)
+        full_path = os.path.join(spec_folder, fname)
+        if not os.path.isfile(full_path):
+            continue
+        mtime = os.path.getmtime(full_path)
+        all_excel.append((mtime, full_path))
 
-    if not best_file:
-        raise FileNotFoundError(
-            f"В папке {spec_folder} не найдено файлов вида сп.520сч.730.xls"
-        )
-    return best_num, best_file
+        for pat in patterns:
+            m = pat.search(fname)
+            if m:
+                matched.append((int(m.group(1)), mtime, full_path))
+                break
+
+    if matched:
+        # Берём максимальный номер; если номера одинаковые — самый свежий по дате
+        matched.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        best_num, _, best_file = matched[0]
+        return best_num, best_file
+
+    if all_excel:
+        all_excel.sort(key=lambda x: x[0], reverse=True)
+        return 0, all_excel[0][1]
+
+    raise FileNotFoundError(f"В папке {spec_folder} вообще нет файлов Excel (.xls / .xlsx).")
+
+
+def guess_calc_folder(client_name: str, calc_folders: list) -> str:
+    """Подбирает папку в РАСЧЕТЫ по маппингу или похожему названию."""
+    mapped = CFG.get("folder_mapping", {}).get(client_name)
+    if mapped and mapped in calc_folders:
+        return mapped
+
+    low = client_name.lower()
+    for folder in calc_folders:
+        if folder.lower() == low:
+            return folder
+    for folder in calc_folders:
+        if low in folder.lower() or folder.lower() in low:
+            return folder
+    return "(не выбрана)"
 
 
 def find_1c_window():
@@ -118,11 +164,13 @@ def find_1c_window():
     return None
 
 
-def export_invoice_from_1c(cfg: dict, invoice_number: str) -> str:
+def export_invoice_from_1c(cfg: dict, invoice_number: str, log_cb) -> str:
     """Подключается к 1С (или запускает её), находит счёт и сохраняет печатную форму в .xlsx."""
+    log_cb("Ищем открытое окно 1С...")
     win_1c = find_1c_window()
 
     if win_1c is None:
+        log_cb("Запускаем 1С и входим в базу...")
         exe_1c = resolve_1c_exe(cfg.get("1c_exe", ""))
         cmd = f'"{exe_1c}" {cfg["1c_base_args"]}'
         subprocess.Popen(cmd, shell=True)
@@ -139,7 +187,7 @@ def export_invoice_from_1c(cfg: dict, invoice_number: str) -> str:
     win_1c.set_focus()
     time.sleep(0.7)
 
-    # Переходим в Продажи -> Счета покупателям (если ещё не там)
+    log_cb("Открываем «Продажи → Счета покупателям»...")
     try:
         win_1c.child_window(title="Продажи", control_type="TabItem").click_input()
         time.sleep(0.6)
@@ -148,18 +196,17 @@ def export_invoice_from_1c(cfg: dict, invoice_number: str) -> str:
     except Exception:
         pass
 
-    # Ищем счёт по номеру через Ctrl+F
+    log_cb(f"Ищем счёт № {invoice_number} в 1С...")
     keyboard.send_keys("^f")
     time.sleep(0.6)
     keyboard.send_keys(str(invoice_number), with_spaces=True)
     keyboard.send_keys("{ENTER}")
     time.sleep(1.2)
 
-    # Открываем найденный счёт
     keyboard.send_keys("{ENTER}")
     time.sleep(1.8)
 
-    # Открываем печатную форму
+    log_cb("Открываем печатную форму и выгружаем в Excel...")
     try:
         win_1c.child_window(title_re=".*Печать.*").click_input()
         time.sleep(0.6)
@@ -169,7 +216,6 @@ def export_invoice_from_1c(cfg: dict, invoice_number: str) -> str:
 
     time.sleep(2.2)
 
-    # Сохраняем печатную форму счёта во временный .xlsx через Ctrl+S
     tmp_xlsx = os.path.join(tempfile.gettempdir(), f"invoice_{invoice_number}.xlsx")
     if os.path.exists(tmp_xlsx):
         os.remove(tmp_xlsx)
@@ -183,7 +229,7 @@ def export_invoice_from_1c(cfg: dict, invoice_number: str) -> str:
 
     if not os.path.exists(tmp_xlsx):
         raise RuntimeError(
-            "Не удалось сохранить печатную форму счёта в .xlsx.\n"
+            f"Не удалось сохранить печатную форму счёта № {invoice_number} в .xlsx.\n"
             "Убедись, что счёт с таким номером есть в «Счета покупателям»."
         )
     return tmp_xlsx
@@ -255,13 +301,15 @@ def parse_invoice_xlsx(xlsx_path: str) -> dict:
 
 def find_calc_bottom_row(calc_folder: str, board_name: str) -> list:
     """Ищет файл расчёта по коду платы и забирает нижнюю заполненную строку (6 ячеек J-O)."""
-    if not os.path.isdir(calc_folder):
+    if not calc_folder or not os.path.isdir(calc_folder):
         return [""] * 6
 
     code = board_name.split()[0].strip().lower()
     target_file = None
 
     for fname in os.listdir(calc_folder):
+        if fname.startswith("~$"):
+            continue
         if fname.lower().endswith((".xls", ".xlsx")) and code in fname.lower():
             target_file = os.path.join(calc_folder, fname)
             break
@@ -289,81 +337,98 @@ def find_calc_bottom_row(calc_folder: str, board_name: str) -> list:
     return [""] * 6
 
 
-def build_specification(cfg: dict, client_name: str, invoice_num: str) -> str:
+def build_specification(
+    cfg: dict,
+    client_name: str,
+    calc_folder_name: str,
+    invoice_num: str,
+    new_spec_num: int,
+    log_cb,
+) -> str:
     spec_folder = os.path.join(cfg["specs_root"], client_name)
-    calc_folder_name = cfg.get("folder_mapping", {}).get(client_name, client_name)
-    calc_folder = os.path.join(cfg["calc_root"], calc_folder_name)
+    calc_folder = (
+        os.path.join(cfg["calc_root"], calc_folder_name)
+        if calc_folder_name and calc_folder_name != "(не выбрана)"
+        else ""
+    )
 
-    last_num, last_file = find_latest_spec(spec_folder)
-    new_num = last_num + 1
+    log_cb("Копируем шаблон последней спецификации...")
+    _, last_file = find_latest_spec(spec_folder)
     ext = os.path.splitext(last_file)[1]
-    new_file = os.path.join(spec_folder, f"сп.{new_num}сч.{invoice_num}{ext}")
+    new_file = os.path.join(spec_folder, f"сп.{new_spec_num} сч.{invoice_num}{ext}")
     shutil.copy2(last_file, new_file)
 
-    tmp_xlsx = export_invoice_from_1c(cfg, invoice_num)
+    tmp_xlsx = export_invoice_from_1c(cfg, invoice_num, log_cb)
+
+    log_cb("Разбираем позиции из счёта 1С...")
     inv = parse_invoice_xlsx(tmp_xlsx)
     items = inv["items"]
-
     if not items:
         raise RuntimeError("Не удалось распознать позиции товаров в печатной форме счёта.")
 
-    excel = win32com.client.Dispatch("Excel.Application")
-    excel.Visible = True
-    wb = excel.Workbooks.Open(new_file)
-    ws = wb.Sheets(1)
+    log_cb("Заполняем спецификацию в Excel...")
+    pythoncom.CoInitialize()
+    try:
+        excel = win32com.client.Dispatch("Excel.Application")
+        excel.Visible = True
+        wb = excel.Workbooks.Open(new_file)
+        ws = wb.Sheets(1)
 
-    ws.Range("O1").Value = f"Приложение № {new_num}"
-    ws.Range("A4").Value = f"Спецификация № {new_num} от {inv['date']} г."
+        ws.Range("O1").Value = f"Приложение № {new_spec_num}"
+        ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
 
-    start_row = 9
-    total_row = start_row
-    while total_row < 150:
-        val = str(ws.Cells(total_row, 1).Value or "")
-        if "Итого без НДС" in val:
-            break
-        total_row += 1
+        start_row = 9
+        total_row = start_row
+        while total_row < 150:
+            val = str(ws.Cells(total_row, 1).Value or "")
+            if "Итого без НДС" in val:
+                break
+            total_row += 1
 
-    existing_rows = total_row - start_row
-    needed_rows = len(items)
+        existing_rows = total_row - start_row
+        needed_rows = len(items)
 
-    if needed_rows > existing_rows:
-        for _ in range(needed_rows - existing_rows):
-            ws.Rows(start_row + 1).Insert()
-            ws.Rows(start_row).Copy(ws.Rows(start_row + 1))
-    elif needed_rows < existing_rows:
-        for _ in range(existing_rows - needed_rows):
-            ws.Rows(start_row + needed_rows).Delete()
+        if needed_rows > existing_rows:
+            for _ in range(needed_rows - existing_rows):
+                ws.Rows(start_row + 1).Insert()
+                ws.Rows(start_row).Copy(ws.Rows(start_row + 1))
+        elif needed_rows < existing_rows:
+            for _ in range(existing_rows - needed_rows):
+                ws.Rows(start_row + needed_rows).Delete()
 
-    for idx, item in enumerate(items, start=1):
-        r = start_row + idx - 1
-        ws.Cells(r, 1).Value = idx
-        ws.Cells(r, 2).Value = item["name"]
-        ws.Cells(r, 3).Value = ""
-        ws.Cells(r, 4).Value = ""
-        ws.Cells(r, 5).Value = item["unit"]
-        ws.Cells(r, 6).Value = item["qty"]
-        ws.Cells(r, 7).Value = item["price"]
-        ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
-        ws.Cells(r, 9).Value = ""
+        for idx, item in enumerate(items, start=1):
+            r = start_row + idx - 1
+            ws.Cells(r, 1).Value = idx
+            ws.Cells(r, 2).Value = item["name"]
+            ws.Cells(r, 3).Value = ""
+            ws.Cells(r, 4).Value = ""
+            ws.Cells(r, 5).Value = item["unit"]
+            ws.Cells(r, 6).Value = item["qty"]
+            ws.Cells(r, 7).Value = item["price"]
+            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
+            ws.Cells(r, 9).Value = ""
 
-        tech = find_calc_bottom_row(calc_folder, item["name"])
-        for offset, val in enumerate(tech):
-            ws.Cells(r, 10 + offset).Value = val
+            tech = find_calc_bottom_row(calc_folder, item["name"])
+            for offset, val in enumerate(tech):
+                ws.Cells(r, 10 + offset).Value = val
 
-    new_total_row = start_row + needed_rows
-    ws.Cells(new_total_row, 8).Value = format_rub_text(inv["totals"]["no_nds"], True)
-    ws.Cells(new_total_row + 2, 8).Value = format_rub_text(inv["totals"]["nds"], True)
-    ws.Cells(new_total_row + 3, 8).Value = format_rub_text(inv["totals"]["with_nds"], True)
-    ws.Cells(new_total_row + 5, 3).Value = amount_in_words(inv["totals"]["with_nds"])
-    ws.Cells(new_total_row + 6, 3).Value = amount_in_words(inv["totals"]["nds"])
+        new_total_row = start_row + needed_rows
+        ws.Cells(new_total_row, 8).Value = format_rub_text(inv["totals"]["no_nds"], True)
+        ws.Cells(new_total_row + 2, 8).Value = format_rub_text(inv["totals"]["nds"], True)
+        ws.Cells(new_total_row + 3, 8).Value = format_rub_text(inv["totals"]["with_nds"], True)
+        ws.Cells(new_total_row + 5, 3).Value = amount_in_words(inv["totals"]["with_nds"])
+        ws.Cells(new_total_row + 6, 3).Value = amount_in_words(inv["totals"]["nds"])
 
-    wb.Save()
+        wb.Save()
+    finally:
+        pythoncom.CoUninitialize()
+
     return new_file
 
 
 def run_gui():
     try:
-        clients = sorted(
+        all_clients = sorted(
             d for d in os.listdir(CFG["specs_root"])
             if os.path.isdir(os.path.join(CFG["specs_root"], d))
         )
@@ -373,32 +438,186 @@ def run_gui():
         messagebox.showerror("Нет доступа к сетевой папке", f"{CFG['specs_root']}\n\n{e}")
         return
 
+    try:
+        all_calc_folders = sorted(
+            d for d in os.listdir(CFG["calc_root"])
+            if os.path.isdir(os.path.join(CFG["calc_root"], d))
+        )
+    except Exception:
+        all_calc_folders = []
+
     root = tk.Tk()
     root.title("Сборка спецификации (1С + Расчёты)")
-    root.geometry("440x200")
-    root.resizable(False, False)
+    root.geometry("560x540")
+    root.minsize(520, 500)
 
-    tk.Label(root, text="Контрагент (папка в Спецификациях):").pack(anchor="w", padx=15, pady=(14, 2))
-    client_var = tk.StringVar(value=clients[0] if clients else "")
-    ttk.Combobox(root, textvariable=client_var, values=clients, width=55).pack(padx=15)
+    pad = {"padx": 14}
 
-    tk.Label(root, text="Номер счёта в 1С:").pack(anchor="w", padx=15, pady=(12, 2))
-    inv_entry = tk.Entry(root, width=58)
-    inv_entry.pack(padx=15)
+    # --- 1. Поиск и выбор фирмы ---
+    tk.Label(root, text="Поиск фирмы (в Спецификациях):", font=("Segoe UI", 9, "bold")).pack(
+        anchor="w", pady=(12, 2), **pad
+    )
+    search_var = tk.StringVar()
+    search_entry = tk.Entry(root, textvariable=search_var, font=("Segoe UI", 10))
+    search_entry.pack(fill="x", **pad)
+
+    list_frame = tk.Frame(root)
+    list_frame.pack(fill="both", expand=True, pady=(6, 6), **pad)
+
+    scrollbar = tk.Scrollbar(list_frame)
+    scrollbar.pack(side="right", fill="y")
+
+    listbox = tk.Listbox(
+        list_frame,
+        height=8,
+        font=("Segoe UI", 10),
+        yscrollcommand=scrollbar.set,
+        exportselection=False,
+    )
+    listbox.pack(side="left", fill="both", expand=True)
+    scrollbar.config(command=listbox.yview)
+
+    # Информация о найденном шаблоне
+    info_var = tk.StringVar(value="Выбери фирму из списка выше")
+    tk.Label(root, textvariable=info_var, fg="#333333", anchor="w", justify="left").pack(
+        fill="x", pady=(0, 8), **pad
+    )
+
+    # --- 2. Папка в РАСЧЕТЫ ---
+    tk.Label(root, text="Папка фирмы в РАСЧЕТЫ:", font=("Segoe UI", 9, "bold")).pack(
+        anchor="w", pady=(2, 2), **pad
+    )
+    calc_var = tk.StringVar(value="(не выбрана)")
+    calc_combo = ttk.Combobox(
+        root,
+        textvariable=calc_var,
+        values=["(не выбрана)"] + all_calc_folders,
+        font=("Segoe UI", 10),
+    )
+    calc_combo.pack(fill="x", **pad)
+
+    # --- 3. Номер спецификации и номер счёта ---
+    row_frame = tk.Frame(root)
+    row_frame.pack(fill="x", pady=(10, 6), **pad)
+
+    left_col = tk.Frame(row_frame)
+    left_col.pack(side="left", fill="x", expand=True, padx=(0, 8))
+    tk.Label(left_col, text="Новый № спецификации:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+    spec_num_var = tk.StringVar()
+    tk.Entry(left_col, textvariable=spec_num_var, font=("Segoe UI", 10)).pack(fill="x", pady=(2, 0))
+
+    right_col = tk.Frame(row_frame)
+    right_col.pack(side="left", fill="x", expand=True, padx=(8, 0))
+    tk.Label(right_col, text="Номер счёта в 1С:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+    inv_var = tk.StringVar()
+    inv_entry = tk.Entry(right_col, textvariable=inv_var, font=("Segoe UI", 10))
+    inv_entry.pack(fill="x", pady=(2, 0))
+
+    # --- 4. Кнопки и статус ---
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(fill="x", pady=(10, 6), **pad)
+
+    start_btn = tk.Button(
+        btn_frame,
+        text="Собрать спецификацию",
+        font=("Segoe UI", 10, "bold"),
+        bg="#1e7e34",
+        fg="white",
+        height=2,
+    )
+    start_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+    def open_selected_folder():
+        sel = listbox.curselection()
+        if not sel:
+            return
+        folder = os.path.join(CFG["specs_root"], listbox.get(sel[0]))
+        if os.path.isdir(folder):
+            os.startfile(folder)
+
+    tk.Button(btn_frame, text="Открыть папку", command=open_selected_folder, height=2, width=16).pack(
+        side="right"
+    )
+
+    status_var = tk.StringVar(value="Готов к работе.")
+    tk.Label(root, textvariable=status_var, fg="#0055aa", anchor="w").pack(fill="x", pady=(2, 10), **pad)
+
+    # --- Логика фильтрации списка и автоподстановки ---
+    def refresh_list(*_):
+        query = search_var.get().strip().lower()
+        listbox.delete(0, tk.END)
+        for name in all_clients:
+            if query in name.lower():
+                listbox.insert(tk.END, name)
+        if listbox.size() == 1:
+            listbox.selection_set(0)
+            on_select_client()
+
+    def on_select_client(_event=None):
+        sel = listbox.curselection()
+        if not sel:
+            return
+        client = listbox.get(sel[0])
+        spec_folder = os.path.join(CFG["specs_root"], client)
+
+        try:
+            last_num, last_file = find_latest_spec(spec_folder)
+            spec_num_var.set(str(last_num + 1))
+            info_var.set(f"Последний файл: {os.path.basename(last_file)}")
+        except Exception as e:
+            spec_num_var.set("1")
+            info_var.set(f"Внимание: {e}")
+
+        calc_var.set(guess_calc_folder(client, all_calc_folders))
+
+    search_var.trace_add("write", refresh_list)
+    listbox.bind("<<ListboxSelect>>", on_select_client)
+    refresh_list()
 
     def on_start():
-        client = client_var.get().strip()
-        inv_num = inv_entry.get().strip()
-        if not client or not inv_num:
-            messagebox.showwarning("Внимание", "Выбери контрагента и введи номер счёта.")
+        sel = listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Внимание", "Выбери фирму из списка.")
+            return
+        client = listbox.get(sel[0])
+        inv_num = clean_invoice_number(inv_var.get())
+        if not inv_num:
+            messagebox.showwarning("Внимание", "Введи номер счёта из 1С (например, 40 или 730).")
             return
         try:
-            res = build_specification(CFG, client, inv_num)
-            messagebox.showinfo("Готово", f"Спецификация собрана и открыта в Excel:\n{res}")
-        except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
+            new_spec_num = int(spec_num_var.get().strip())
+        except ValueError:
+            messagebox.showwarning("Внимание", "Номер спецификации должен быть числом.")
+            return
 
-    tk.Button(root, text="Собрать спецификацию", command=on_start, height=2, width=28).pack(pady=16)
+        calc_folder_name = calc_var.get().strip()
+        start_btn.config(state="disabled")
+
+        def set_status(msg: str):
+            root.after(0, lambda: status_var.set(msg))
+
+        def worker():
+            try:
+                res = build_specification(
+                    CFG, client, calc_folder_name, inv_num, new_spec_num, set_status
+                )
+                set_status("Готово!")
+                root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Готово", f"Спецификация собрана и открыта в Excel:\n{res}"
+                    ),
+                )
+            except Exception as e:
+                set_status("Ошибка.")
+                root.after(0, lambda err=str(e): messagebox.showerror("Ошибка", err))
+            finally:
+                root.after(0, lambda: start_btn.config(state="normal"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    start_btn.config(command=on_start)
+    search_entry.focus_set()
     root.mainloop()
 
 
