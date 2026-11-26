@@ -1,3 +1,4 @@
+import ctypes
 import json
 import os
 import re
@@ -17,7 +18,7 @@ import win32com.client
 import win32con
 import xlrd
 from num2words import num2words
-from pywinauto import Desktop, keyboard
+from pywinauto import Desktop
 
 
 # =============================================================================
@@ -208,10 +209,45 @@ def save_user_settings(data: dict):
 
 
 # =============================================================================
-# УТИЛИТЫ КЛАВИАТУРЫ (НЕ ЗАВИСЯТ ОТ РУССКОЙ/АНГЛИЙСКОЙ РАСКЛАДКИ)
+# УТИЛИТЫ КЛАВИАТУРЫ И БУФЕРА (БЕЗ ОШИБОК ДЕСКРИПТОРА И РАСКЛАДКИ)
 # =============================================================================
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", ctypes.c_ushort),
+        ("wScan", ctypes.c_ushort),
+        ("dwFlags", ctypes.c_ulong),
+        ("time", ctypes.c_ulong),
+        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+    ]
+
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT), ("pad", ctypes.c_ubyte * 28)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("union", _INPUT_UNION)]
+
+
+def type_unicode_text(text: str):
+    """Вводит любой текст через SendInput напрямую — без буфера обмена и раскладки."""
+    INPUT_KEYBOARD = 1
+    KEYEVENTF_UNICODE = 0x0004
+    KEYEVENTF_KEYUP = 0x0002
+    extra = ctypes.c_ulong(0)
+
+    for ch in text:
+        code = ord(ch)
+        inp_down = INPUT(type=INPUT_KEYBOARD)
+        inp_down.union.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE, 0, ctypes.pointer(extra))
+        inp_up = INPUT(type=INPUT_KEYBOARD)
+        inp_up.union.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp_down), ctypes.sizeof(INPUT))
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp_up), ctypes.sizeof(INPUT))
+        time.sleep(0.03)
+
+
 def press_ctrl_key(vk_code: int):
-    """Отправляет Ctrl + клавиша по виртуальному коду (работает и на RU, и на EN)."""
     win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
     time.sleep(0.05)
     win32api.keybd_event(vk_code, 0, 0, 0)
@@ -225,6 +261,34 @@ def press_vk(vk_code: int):
     win32api.keybd_event(vk_code, 0, 0, 0)
     time.sleep(0.05)
     win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+
+def get_clipboard_text() -> str:
+    for _ in range(5):
+        try:
+            win32clipboard.OpenClipboard()
+            try:
+                if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+                    return win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT) or ""
+                return ""
+            finally:
+                win32clipboard.CloseClipboard()
+        except Exception:
+            time.sleep(0.15)
+    return ""
+
+
+def clear_clipboard():
+    for _ in range(5):
+        try:
+            win32clipboard.OpenClipboard()
+            try:
+                win32clipboard.EmptyClipboard()
+                return
+            finally:
+                win32clipboard.CloseClipboard()
+        except Exception:
+            time.sleep(0.15)
 
 
 # =============================================================================
@@ -290,41 +354,22 @@ def amount_in_words(amount: float) -> str:
     return f"{rub_words} {rub_unit} {kop:02d} {kop_unit}"
 
 
-def get_clipboard_text() -> str:
-    text = ""
-    try:
-        win32clipboard.OpenClipboard()
-        if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
-            text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-    finally:
-        try:
-            win32clipboard.CloseClipboard()
-        except Exception:
-            pass
-    return text or ""
-
-
-def set_clipboard_text(text: str):
-    try:
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, text)
-    finally:
-        try:
-            win32clipboard.CloseClipboard()
-        except Exception:
-            pass
-
-
-def clear_clipboard():
-    try:
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-    finally:
-        try:
-            win32clipboard.CloseClipboard()
-        except Exception:
-            pass
+def split_board_and_ps(raw_name: str):
+    """
+    Разбирает строку из 1С вида:
+      'Печ.платы ps 412468 6U7102201v2 (6Ю7.102.201v2)'
+      'Печ.платы ps 638725 bvp1'
+    Возвращает кортеж: (наименование_платы, зав_номер_заказа).
+    """
+    s = raw_name.strip()
+    m = re.search(r"\bps\s+(\d+)\s+(.+)$", s, flags=re.IGNORECASE)
+    if m:
+        return m.group(2).strip(), m.group(1).strip()
+    m2 = re.search(r"\bps\s*(\d+)\b(.*)$", s, flags=re.IGNORECASE)
+    if m2:
+        rest = m2.group(2).strip(" -–—")
+        return (rest if rest else s), m2.group(1).strip()
+    return s, ""
 
 
 def find_latest_spec(spec_folder: str):
@@ -379,7 +424,7 @@ def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> st
 
 
 # =============================================================================
-# РАБОТА С 1С (ИСПРАВЛЕННАЯ — НЕ ЗАВИСИТ ОТ РАСКЛАДКИ RU/EN)
+# РАБОТА С 1С
 # =============================================================================
 def find_1c_window():
     desktop = Desktop(backend="uia")
@@ -391,7 +436,6 @@ def find_1c_window():
 
 
 def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0) -> bool:
-    """Ищет элемент в дереве 1С по тексту (любого типа) и кликает по нему."""
     deadline = time.time() + timeout
     needle = exact_or_part.lower()
     while time.time() < deadline:
@@ -457,24 +501,24 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
             log_cb("Раздел «Продажи» не найден — пробуем поиск в текущем окне 1С.")
 
         log_cb(f"Ищем счёт № {invoice_number} (Ctrl+F)...")
-        press_ctrl_key(0x46)  # Ctrl+F (работает в любой раскладке)
-        time.sleep(0.8)
+        press_ctrl_key(0x46)  # Ctrl+F
+        time.sleep(0.9)
 
-        set_clipboard_text(str(invoice_number))
-        time.sleep(0.15)
-        press_ctrl_key(0x56)  # Ctrl+V
-        time.sleep(0.3)
+        # Вводим номер напрямую через SendInput (без буфера обмена!)
+        type_unicode_text(str(invoice_number))
+        time.sleep(0.35)
         press_vk(win32con.VK_RETURN)
-        time.sleep(1.5)
+        time.sleep(1.6)
 
         log_cb("Открываем найденный счёт (Enter)...")
         press_vk(win32con.VK_RETURN)
-        time.sleep(2.2)
+        time.sleep(2.5)
 
         log_cb("Открываем печатную форму «Счет покупателю»...")
-        if click_1c_element_by_name(win_1c, "Печать", timeout=5.0):
-            time.sleep(0.8)
-            press_vk(win32con.VK_RETURN)
+        if click_1c_element_by_name(win_1c, "Печать", timeout=6.0):
+            time.sleep(0.9)
+            if not click_1c_element_by_name(win_1c, "Счет покупателю", timeout=2.5):
+                press_vk(win32con.VK_RETURN)
         else:
             press_ctrl_key(0x50)  # Ctrl+P
         time.sleep(2.5)
@@ -492,18 +536,17 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
     except Exception:
         pass
 
-    press_ctrl_key(0x41)  # Ctrl+A (работает в RU и EN)
+    press_ctrl_key(0x41)  # Ctrl+A
     time.sleep(0.5)
-    press_ctrl_key(0x43)  # Ctrl+C (работает в RU и EN)
-    time.sleep(0.8)
+    press_ctrl_key(0x43)  # Ctrl+C
+    time.sleep(0.9)
 
     raw_text = get_clipboard_text()
     if not raw_text.strip():
         raise RuntimeError(
             "Буфер обмена остался пустым после копирования из 1С.\n\n"
             "Быстрый обход: открой в 1С печатную форму счёта, нажми там Ctrl+A и Ctrl+C, "
-            "а затем в программе нажми кнопку «Вставить из буфера» (или поставь галочку "
-            "«Печатная форма счёта уже открыта в 1С»)."
+            "а затем нажми кнопку «📋 Вставить из буфера»."
         )
     return raw_text
 
@@ -544,9 +587,12 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
                 totals["no_nds"] = parse_number(cells[-1])
                 continue
             if cells[0].isdigit() and len(cells) >= 6:
+                board_name, ps_num = split_board_and_ps(cells[1])
                 term = cells[6] if len(cells) >= 7 else ""
                 items.append({
-                    "name": cells[1],
+                    "raw_name": cells[1],
+                    "name": board_name,
+                    "ps_num": ps_num,
                     "unit": cells[2],
                     "qty": parse_number(cells[3]),
                     "price": parse_number(cells[4]),
@@ -570,7 +616,7 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
 
 
 # =============================================================================
-# ПОИСК НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ"
+# ПОИСК НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ" (ТОЧНО ПОД СТРОКОЙ "Слои | Класс | Маска | Марк | Покр | Доп")
 # =============================================================================
 def extract_board_tokens(board_name: str) -> list:
     stop_words = {"печ.платы", "печатные", "платы", "плата", "ps", "пп", "шт"}
@@ -583,11 +629,44 @@ def extract_board_tokens(board_name: str) -> list:
     return tokens
 
 
-def find_calc_bottom_row(calc_folder: str, board_name: str) -> list:
+def extract_6_tech_cells_from_rows(rows: list) -> list:
+    """
+    Ищет строку-заголовок с 'Маска' и ('Слои' или 'Покр') в бланке заказа ПП
+    и берёт ровно 6 ячеек из следующей строки (сохраняя пустые ячейки на своих местах).
+    """
+    for r in range(len(rows) - 1, -1, -1):
+        row = rows[r]
+        joined = " ".join(str(v or "").lower() for v in row)
+        if "маска" in joined and ("сло" in joined or "покр" in joined or "марк" in joined):
+            if r + 1 < len(rows):
+                start_col = 0
+                for c, val in enumerate(row):
+                    if "сло" in str(val or "").lower():
+                        start_col = c
+                        break
+                data_row = rows[r + 1]
+                out = []
+                for c in range(start_col, start_col + 6):
+                    v = data_row[c] if c < len(data_row) else ""
+                    if isinstance(v, float) and v.is_integer():
+                        v = int(v)
+                    out.append("" if v is None else v)
+                return out
+
+    for r in range(len(rows) - 1, -1, -1):
+        non_empty = [v for v in rows[r] if v is not None and str(v).strip() != ""]
+        if len(non_empty) >= 3:
+            cleaned = [int(v) if isinstance(v, float) and v.is_integer() else v for v in non_empty]
+            return (cleaned + [""] * 6)[:6]
+
+    return [""] * 6
+
+
+def find_calc_bottom_row(calc_folder: str, board_name: str, raw_name: str = "") -> list:
     if not calc_folder or not os.path.isdir(calc_folder):
         return [""] * 6
 
-    tokens = extract_board_tokens(board_name)
+    tokens = extract_board_tokens(board_name + " " + raw_name)
     if not tokens:
         return [""] * 6
 
@@ -608,24 +687,19 @@ def find_calc_bottom_row(calc_folder: str, board_name: str) -> list:
     if not target_file:
         return [""] * 6
 
+    rows = []
     if target_file.lower().endswith(".xls"):
         wb = xlrd.open_workbook(target_file)
         sh = wb.sheet_by_index(0)
-        for r in range(sh.nrows - 1, -1, -1):
-            row_vals = [sh.cell_value(r, c) for c in range(sh.ncols)]
-            non_empty = [v for v in row_vals if str(v).strip() != ""]
-            if len(non_empty) >= 3:
-                return (non_empty + [""] * 6)[:6]
+        for r in range(sh.nrows):
+            rows.append([sh.cell_value(r, c) for c in range(sh.ncols)])
     else:
         wb = openpyxl.load_workbook(target_file, data_only=True)
         ws = wb.active
-        for r in range(ws.max_row, 0, -1):
-            row_vals = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
-            non_empty = [v for v in row_vals if v is not None and str(v).strip() != ""]
-            if len(non_empty) >= 3:
-                return (non_empty + [""] * 6)[:6]
+        for r in range(1, ws.max_row + 1):
+            rows.append([ws.cell(r, c).value for c in range(1, ws.max_column + 1)])
 
-    return [""] * 6
+    return extract_6_tech_cells_from_rows(rows)
 
 
 # =============================================================================
@@ -658,7 +732,9 @@ def build_specification(
         log_cb("Читаем таблицу из буфера обмена...")
         raw_text = get_clipboard_text()
         if not raw_text.strip():
-            raise RuntimeError("Буфер обмена пуст. Сначала скопируй печатную форму счёта в 1С (Ctrl+A, Ctrl+C).")
+            raise RuntimeError(
+                "Буфер обмена пуст. Сначала скопируй печатную форму счёта в 1С (Ctrl+A, Ctrl+C)."
+            )
     else:
         raw_text = grab_text_from_1c_print_form(cfg, invoice_num, use_open_form, log_cb)
 
@@ -704,16 +780,16 @@ def build_specification(
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
             ws.Cells(r, 1).Value = idx                                   # A: № п/п
-            ws.Cells(r, 2).Value = item["name"]                          # B: Наименование
-            ws.Cells(r, 3).Value = ""                                    # C: Зав. № заказа
+            ws.Cells(r, 2).Value = item["name"]                          # B: Наименование платы
+            ws.Cells(r, 3).Value = item["ps_num"]                        # C: Зав. № заказа (Пэсочка)
             ws.Cells(r, 4).Value = item["term"]                          # D: Срок пост.
             ws.Cells(r, 5).Value = item["unit"]                          # E: Ед. изм.
             ws.Cells(r, 6).Value = item["qty"]                           # F: Кол-во
             ws.Cells(r, 7).Value = item["price"]                         # G: Цена
             ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)   # H: Сумма
-            ws.Cells(r, 9).Value = ""                                    # I: Площадь
+            ws.Cells(r, 9).Value = ""                                    # I: Площадь (с заводского счёта)
 
-            tech = find_calc_bottom_row(calc_folder, item["name"])
+            tech = find_calc_bottom_row(calc_folder, item["name"], item["raw_name"])
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
 
@@ -933,19 +1009,14 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.last_file_lbl.pack(anchor="w", padx=16, pady=(0, 10))
 
-        # Поиск по папке РАСЧЕТЫ
         calc_top = ctk.CTkFrame(self.card1, fg_color="transparent")
         calc_top.pack(fill="x", padx=16, pady=(0, 4))
         self.calc_title_lbl = ctk.CTkLabel(
-            calc_top,
-            text="Папка фирмы в «РАСЧЕТЫ» (выбрано: ",
-            font=ctk.CTkFont(size=12),
+            calc_top, text="Папка фирмы в «РАСЧЕТЫ» (выбрано: ", font=ctk.CTkFont(size=12),
         )
         self.calc_title_lbl.pack(side="left")
         self.calc_selected_lbl = ctk.CTkLabel(
-            calc_top,
-            text="(не выбрана)",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            calc_top, text="(не выбрана)", font=ctk.CTkFont(size=12, weight="bold"),
         )
         self.calc_selected_lbl.pack(side="left")
         self.calc_close_lbl = ctk.CTkLabel(calc_top, text=")", font=ctk.CTkFont(size=12))
