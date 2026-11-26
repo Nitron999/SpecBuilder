@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -10,8 +11,10 @@ from tkinter import messagebox
 import customtkinter as ctk
 import openpyxl
 import pythoncom
+import win32api
 import win32clipboard
 import win32com.client
+import win32con
 import xlrd
 from num2words import num2words
 from pywinauto import Desktop, keyboard
@@ -32,18 +35,196 @@ CFG = {
     },
 }
 
-# Цветовая палитра (тёмный стиль)
-BG_APP = "#0f1216"
-BG_SIDEBAR = "#13171d"
-BG_CARD = "#181d24"
-BG_INPUT = "#10141a"
-BORDER_CARD = "#262d38"
-ACCENT_GREEN = "#10b981"
-ACCENT_GREEN_HOVER = "#059669"
-ACCENT_AMBER = "#f59e0b"
-ACCENT_BLUE = "#38bdf8"
-TEXT_MAIN = "#f1f5f9"
-TEXT_MUTED = "#94a3b8"
+SETTINGS_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SpecBuilder")
+SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
+
+
+# =============================================================================
+# 7 ТЕМ ОФОРМЛЕНИЯ
+# =============================================================================
+THEMES = {
+    "Тёмная ночь": {
+        "mode": "dark",
+        "bg_app": "#0f1216",
+        "bg_sidebar": "#13171d",
+        "bg_card": "#181d24",
+        "bg_input": "#10141a",
+        "border": "#262d38",
+        "accent": "#10b981",
+        "accent_hover": "#059669",
+        "accent_text": "#052e16",
+        "sel_bg": "#163529",
+        "sel_text": "#34d399",
+        "hover": "#1f2937",
+        "title_accent1": "#f59e0b",
+        "title_accent2": "#38bdf8",
+        "title_accent3": "#10b981",
+        "text_main": "#f1f5f9",
+        "text_muted": "#94a3b8",
+        "badge_bg": "#1d2430",
+    },
+    "Светлая классика": {
+        "mode": "light",
+        "bg_app": "#f1f5f9",
+        "bg_sidebar": "#ffffff",
+        "bg_card": "#ffffff",
+        "bg_input": "#f8fafc",
+        "border": "#cbd5e1",
+        "accent": "#16a34a",
+        "accent_hover": "#15803d",
+        "accent_text": "#ffffff",
+        "sel_bg": "#dcfce7",
+        "sel_text": "#166534",
+        "hover": "#e2e8f0",
+        "title_accent1": "#d97706",
+        "title_accent2": "#0284c7",
+        "title_accent3": "#16a34a",
+        "text_main": "#0f172a",
+        "text_muted": "#475569",
+        "badge_bg": "#f1f5f9",
+    },
+    "Изумруд СДЭК": {
+        "mode": "dark",
+        "bg_app": "#0b1410",
+        "bg_sidebar": "#0f1c16",
+        "bg_card": "#13241c",
+        "bg_input": "#0c1712",
+        "border": "#1f3b2e",
+        "accent": "#1ab248",
+        "accent_hover": "#15963c",
+        "accent_text": "#04210c",
+        "sel_bg": "#163d25",
+        "sel_text": "#4ade80",
+        "hover": "#1a3327",
+        "title_accent1": "#4ade80",
+        "title_accent2": "#34d399",
+        "title_accent3": "#1ab248",
+        "text_main": "#ecfdf5",
+        "text_muted": "#86efac",
+        "badge_bg": "#163024",
+    },
+    "Глубокий океан": {
+        "mode": "dark",
+        "bg_app": "#0a1320",
+        "bg_sidebar": "#0e1a2b",
+        "bg_card": "#132238",
+        "bg_input": "#0b1626",
+        "border": "#1e3554",
+        "accent": "#0ea5e9",
+        "accent_hover": "#0284c7",
+        "accent_text": "#082f49",
+        "sel_bg": "#13344f",
+        "sel_text": "#38bdf8",
+        "hover": "#1b2e4a",
+        "title_accent1": "#38bdf8",
+        "title_accent2": "#818cf8",
+        "title_accent3": "#22d3ee",
+        "text_main": "#f0f9ff",
+        "text_muted": "#94a3b8",
+        "badge_bg": "#172942",
+    },
+    "Графит и золото": {
+        "mode": "dark",
+        "bg_app": "#17171a",
+        "bg_sidebar": "#1e1e22",
+        "bg_card": "#242429",
+        "bg_input": "#19191d",
+        "border": "#36363d",
+        "accent": "#eab308",
+        "accent_hover": "#ca8a04",
+        "accent_text": "#1c1917",
+        "sel_bg": "#383018",
+        "sel_text": "#facc15",
+        "hover": "#2d2d34",
+        "title_accent1": "#facc15",
+        "title_accent2": "#fbbf24",
+        "title_accent3": "#eab308",
+        "text_main": "#fafaf9",
+        "text_muted": "#a8a29e",
+        "badge_bg": "#2b2b31",
+    },
+    "Чёрное золото": {
+        "mode": "dark",
+        "bg_app": "#09090b",
+        "bg_sidebar": "#111114",
+        "bg_card": "#16161a",
+        "bg_input": "#0d0d10",
+        "border": "#2e2718",
+        "accent": "#d4af37",
+        "accent_hover": "#b8952a",
+        "accent_text": "#09090b",
+        "sel_bg": "#2b2412",
+        "sel_text": "#f3d267",
+        "hover": "#221e15",
+        "title_accent1": "#f3d267",
+        "title_accent2": "#d4af37",
+        "title_accent3": "#eab308",
+        "text_main": "#fefce8",
+        "text_muted": "#a1a1aa",
+        "badge_bg": "#1d1a12",
+    },
+    "Тёплый песок": {
+        "mode": "light",
+        "bg_app": "#f5efe6",
+        "bg_sidebar": "#fbf8f3",
+        "bg_card": "#fffdf9",
+        "bg_input": "#f7f1e8",
+        "border": "#dfd3c3",
+        "accent": "#b45309",
+        "accent_hover": "#92400e",
+        "accent_text": "#ffffff",
+        "sel_bg": "#f3e5d0",
+        "sel_text": "#78350f",
+        "hover": "#ede2d2",
+        "title_accent1": "#b45309",
+        "title_accent2": "#0f766e",
+        "title_accent3": "#92400e",
+        "text_main": "#292524",
+        "text_muted": "#78716c",
+        "badge_bg": "#f2e8da",
+    },
+}
+
+
+def load_user_settings() -> dict:
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+    return {"theme": "Тёмная ночь", "folder_mapping": dict(CFG["folder_mapping"])}
+
+
+def save_user_settings(data: dict):
+    try:
+        os.makedirs(SETTINGS_DIR, exist_ok=True)
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+# =============================================================================
+# УТИЛИТЫ КЛАВИАТУРЫ (НЕ ЗАВИСЯТ ОТ РУССКОЙ/АНГЛИЙСКОЙ РАСКЛАДКИ)
+# =============================================================================
+def press_ctrl_key(vk_code: int):
+    """Отправляет Ctrl + клавиша по виртуальному коду (работает и на RU, и на EN)."""
+    win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+    time.sleep(0.05)
+    win32api.keybd_event(vk_code, 0, 0, 0)
+    time.sleep(0.05)
+    win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
+    time.sleep(0.05)
+    win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+
+def press_vk(vk_code: int):
+    win32api.keybd_event(vk_code, 0, 0, 0)
+    time.sleep(0.05)
+    win32api.keybd_event(vk_code, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
 # =============================================================================
@@ -123,6 +304,18 @@ def get_clipboard_text() -> str:
     return text or ""
 
 
+def set_clipboard_text(text: str):
+    try:
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, text)
+    finally:
+        try:
+            win32clipboard.CloseClipboard()
+        except Exception:
+            pass
+
+
 def clear_clipboard():
     try:
         win32clipboard.OpenClipboard()
@@ -170,8 +363,8 @@ def find_latest_spec(spec_folder: str):
     raise FileNotFoundError(f"В папке {spec_folder} нет файлов Excel (.xls / .xlsx).")
 
 
-def guess_calc_folder(client_name: str, calc_folders: list) -> str:
-    mapped = CFG.get("folder_mapping", {}).get(client_name)
+def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> str:
+    mapped = mapping.get(client_name) or CFG.get("folder_mapping", {}).get(client_name)
     if mapped and mapped in calc_folders:
         return mapped
 
@@ -186,7 +379,7 @@ def guess_calc_folder(client_name: str, calc_folders: list) -> str:
 
 
 # =============================================================================
-# РАБОТА С 1С (ЧЕРЕЗ БУФЕР ОБМЕНА ПЕЧАТНОЙ ФОРМЫ — БЕЗ ОШИБОК .MXL/.XLSX)
+# РАБОТА С 1С (ИСПРАВЛЕННАЯ — НЕ ЗАВИСИТ ОТ РАСКЛАДКИ RU/EN)
 # =============================================================================
 def find_1c_window():
     desktop = Desktop(backend="uia")
@@ -197,20 +390,41 @@ def find_1c_window():
     return None
 
 
+def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0) -> bool:
+    """Ищет элемент в дереве 1С по тексту (любого типа) и кликает по нему."""
+    deadline = time.time() + timeout
+    needle = exact_or_part.lower()
+    while time.time() < deadline:
+        try:
+            for el in win_1c.descendants():
+                txt = (el.window_text() or "").strip().lower()
+                if txt == needle or (len(needle) >= 5 and needle in txt):
+                    rect = el.rectangle()
+                    if rect.width() > 5 and rect.height() > 5:
+                        el.click_input()
+                        return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
 def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: bool, log_cb) -> str:
     log_cb("Ищем окно 1С:Предприятие...")
     win_1c = find_1c_window()
+    just_launched = False
 
     if win_1c is None:
         if use_open_form:
             raise RuntimeError(
                 "Окно 1С:Предприятие не найдено на этом компьютере.\n"
-                "Убедись, что программа запущена на том же ПК, где открыта 1С (не через AnyDesk)."
+                "Открой 1С и печатную форму счёта на этом же ПК."
             )
         log_cb("Запускаем 1С и входим в базу...")
         exe_1c = resolve_1c_exe(cfg.get("1c_exe", ""))
         cmd = f'"{exe_1c}" {cfg["1c_base_args"]}'
         subprocess.Popen(cmd, shell=True)
+        just_launched = True
         for _ in range(45):
             time.sleep(2.0)
             win_1c = find_1c_window()
@@ -220,65 +434,76 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
     if win_1c is None:
         raise RuntimeError(
             "Не удалось найти или запустить окно 1С:Предприятие.\n"
-            "Важно: SpecBuilder.exe должен запускаться на том же компьютере, где стоит 1С."
+            "Важно: программа должна запускаться на том же компьютере, где установлена 1С."
         )
 
+    if just_launched:
+        log_cb("Ждём полную загрузку интерфейса 1С (6 сек)...")
+        time.sleep(6.0)
+
     win_1c.set_focus()
-    time.sleep(0.6)
+    time.sleep(0.7)
 
     if not use_open_form:
-        log_cb("Открываем «Продажи → Счета покупателям»...")
-        try:
-            win_1c.child_window(title="Продажи", control_type="TabItem").click_input()
-            time.sleep(0.5)
-            win_1c.child_window(title="Счета покупателям").click_input()
-            time.sleep(1.2)
-        except Exception:
-            pass
+        log_cb("Нажимаем раздел «Продажи»...")
+        if click_1c_element_by_name(win_1c, "Продажи", timeout=10.0):
+            time.sleep(1.0)
+            log_cb("Открываем «Счета покупателям»...")
+            if click_1c_element_by_name(win_1c, "Счета покупателям", timeout=6.0):
+                time.sleep(2.0)
+            else:
+                log_cb("Пункт «Счета покупателям» не найден (возможно, уже открыт).")
+        else:
+            log_cb("Раздел «Продажи» не найден — пробуем поиск в текущем окне 1С.")
 
-        log_cb(f"Ищем счёт № {invoice_number} в 1С...")
-        keyboard.send_keys("^f")
-        time.sleep(0.6)
-        keyboard.send_keys(str(invoice_number), with_spaces=True)
-        keyboard.send_keys("{ENTER}")
-        time.sleep(1.2)
+        log_cb(f"Ищем счёт № {invoice_number} (Ctrl+F)...")
+        press_ctrl_key(0x46)  # Ctrl+F (работает в любой раскладке)
+        time.sleep(0.8)
 
-        keyboard.send_keys("{ENTER}")
-        time.sleep(1.8)
+        set_clipboard_text(str(invoice_number))
+        time.sleep(0.15)
+        press_ctrl_key(0x56)  # Ctrl+V
+        time.sleep(0.3)
+        press_vk(win32con.VK_RETURN)
+        time.sleep(1.5)
+
+        log_cb("Открываем найденный счёт (Enter)...")
+        press_vk(win32con.VK_RETURN)
+        time.sleep(2.2)
 
         log_cb("Открываем печатную форму «Счет покупателю»...")
-        try:
-            win_1c.child_window(title_re=".*Печать.*").click_input()
-            time.sleep(0.6)
-            keyboard.send_keys("{ENTER}")
-        except Exception:
-            keyboard.send_keys("^p")
-        time.sleep(2.0)
+        if click_1c_element_by_name(win_1c, "Печать", timeout=5.0):
+            time.sleep(0.8)
+            press_vk(win32con.VK_RETURN)
+        else:
+            press_ctrl_key(0x50)  # Ctrl+P
+        time.sleep(2.5)
 
-    log_cb("Считываем таблицу из печатной формы 1С...")
+    log_cb("Копируем таблицу из печатной формы (Ctrl+A → Ctrl+C)...")
     clear_clipboard()
-    time.sleep(0.2)
+    time.sleep(0.25)
 
     try:
         rect = win_1c.rectangle()
-        cx = (rect.left + rect.right) // 2
-        cy = (rect.top + rect.bottom) // 2
+        cx = int((rect.left + rect.right) * 0.52)
+        cy = int((rect.top + rect.bottom) * 0.45)
         win_1c.click_input(coords=(cx - rect.left, cy - rect.top))
-        time.sleep(0.3)
+        time.sleep(0.4)
     except Exception:
         pass
 
-    keyboard.send_keys("^a")
-    time.sleep(0.4)
-    keyboard.send_keys("^c")
-    time.sleep(0.7)
+    press_ctrl_key(0x41)  # Ctrl+A (работает в RU и EN)
+    time.sleep(0.5)
+    press_ctrl_key(0x43)  # Ctrl+C (работает в RU и EN)
+    time.sleep(0.8)
 
     raw_text = get_clipboard_text()
     if not raw_text.strip():
         raise RuntimeError(
-            "Не удалось скопировать таблицу из 1С.\n"
-            "Попробуй открыть печатную форму счёта в 1С вручную и поставить галочку "
-            "«Печатная форма счёта уже открыта в 1С»."
+            "Буфер обмена остался пустым после копирования из 1С.\n\n"
+            "Быстрый обход: открой в 1С печатную форму счёта, нажми там Ctrl+A и Ctrl+C, "
+            "а затем в программе нажми кнопку «Вставить из буфера» (или поставь галочку "
+            "«Печатная форма счёта уже открыта в 1С»)."
         )
     return raw_text
 
@@ -413,6 +638,7 @@ def build_specification(
     invoice_num: str,
     new_spec_num: int,
     use_open_form: bool,
+    from_clipboard_only: bool,
     log_cb,
 ) -> str:
     spec_folder = os.path.join(cfg["specs_root"], client_name)
@@ -428,7 +654,13 @@ def build_specification(
     new_file = os.path.join(spec_folder, f"сп.{new_spec_num} сч.{invoice_num}{ext}")
     shutil.copy2(last_file, new_file)
 
-    raw_text = grab_text_from_1c_print_form(cfg, invoice_num, use_open_form, log_cb)
+    if from_clipboard_only:
+        log_cb("Читаем таблицу из буфера обмена...")
+        raw_text = get_clipboard_text()
+        if not raw_text.strip():
+            raise RuntimeError("Буфер обмена пуст. Сначала скопируй печатную форму счёта в 1С (Ctrl+A, Ctrl+C).")
+    else:
+        raw_text = grab_text_from_1c_print_form(cfg, invoice_num, use_open_form, log_cb)
 
     log_cb("Разбираем строки счёта...")
     inv = parse_invoice_clipboard_text(raw_text)
@@ -436,10 +668,10 @@ def build_specification(
     if not items:
         raise RuntimeError(
             "Не удалось распознать товары в скопированном тексте 1С.\n"
-            "Убедись, что в 1С открыта именно печатная форма «Счет покупателю»."
+            "Убедись, что открыта именно печатная форма «Счет покупателю»."
         )
 
-    log_cb("Заполняем Excel и подтягиваем параметры из РАСЧЕТЫ...")
+    log_cb(f"Найдено позиций: {len(items)}. Заполняем Excel и подтягиваем РАСЧЕТЫ...")
     pythoncom.CoInitialize()
     try:
         excel = win32com.client.Dispatch("Excel.Application")
@@ -500,27 +732,37 @@ def build_specification(
 
 
 # =============================================================================
-# СОВРЕМЕННЫЙ ТЁМНЫЙ ИНТЕРФЕЙС (CUSTOMTKINTER)
+# ПРИЛОЖЕНИЕ С 7 ТЕМАМИ И ЖИВЫМ ПОИСКОМ ПО «СПЕЦИФИКАЦИЯМ» И «РАСЧЁТАМ»
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        ctk.set_appearance_mode("dark")
+        self.user_settings = load_user_settings()
+        self.current_theme_name = self.user_settings.get("theme", "Тёмная ночь")
+        if self.current_theme_name not in THEMES:
+            self.current_theme_name = "Тёмная ночь"
+        self.folder_mapping = self.user_settings.get("folder_mapping", dict(CFG["folder_mapping"]))
+        self.t = THEMES[self.current_theme_name]
+
+        ctk.set_appearance_mode(self.t["mode"])
         ctk.set_default_color_theme("green")
 
         self.title(f'{CFG["company_name"]} — Сборка спецификаций')
-        self.geometry("1160x700")
-        self.minsize(980, 620)
-        self.configure(fg_color=BG_APP)
+        self.geometry("1220x740")
+        self.minsize(1020, 650)
 
         self.all_clients = []
         self.all_calc_folders = []
         self.selected_client = None
+        self.selected_calc_folder = "(не выбрана)"
         self.client_buttons = {}
+        self.calc_buttons = {}
 
         self._load_folders()
         self._build_layout()
+        self._apply_theme(self.current_theme_name, save=False)
         self._render_client_list("")
+        self._render_calc_list("")
 
     def _load_folders(self):
         try:
@@ -547,124 +789,118 @@ class SpecBuilderApp(ctk.CTk):
         self.grid_rowconfigure(1, weight=1)
 
         # === ВЕРХНЯЯ ШАПКА ===
-        header = ctk.CTkFrame(
-            self, height=64, fg_color=BG_SIDEBAR, corner_radius=0,
-            border_width=1, border_color=BORDER_CARD
-        )
-        header.grid(row=0, column=0, columnspan=3, sticky="ew")
-        header.grid_columnconfigure(1, weight=1)
+        self.header = ctk.CTkFrame(self, height=64, corner_radius=0, border_width=1)
+        self.header.grid(row=0, column=0, columnspan=3, sticky="ew")
+        self.header.grid_columnconfigure(1, weight=1)
 
-        brand_frame = ctk.CTkFrame(header, fg_color="transparent")
+        brand_frame = ctk.CTkFrame(self.header, fg_color="transparent")
         brand_frame.grid(row=0, column=0, padx=18, pady=10, sticky="w")
 
-        ctk.CTkLabel(
+        self.logo_badge = ctk.CTkLabel(
             brand_frame,
             text="ПП",
             width=40,
             height=40,
             corner_radius=10,
-            fg_color=ACCENT_GREEN,
-            text_color="#052e16",
             font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-        ).pack(side="left", padx=(0, 12))
+        )
+        self.logo_badge.pack(side="left", padx=(0, 12))
 
         title_box = ctk.CTkFrame(brand_frame, fg_color="transparent")
         title_box.pack(side="left")
-        ctk.CTkLabel(
+        self.company_lbl = ctk.CTkLabel(
             title_box,
             text=CFG["company_name"],
             font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
-            text_color=TEXT_MAIN,
-        ).pack(anchor="w")
-        ctk.CTkLabel(
+        )
+        self.company_lbl.pack(anchor="w")
+        self.subtitle_lbl = ctk.CTkLabel(
             title_box,
             text="Автоматическая сборка спецификаций (1С + Расчёты)",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=TEXT_MUTED,
-        ).pack(anchor="w")
-
-        # СПРАВА: Мамонтова Людмила Давыдовна
-        user_badge = ctk.CTkFrame(
-            header,
-            fg_color="#1d2430",
-            corner_radius=10,
-            border_width=1,
-            border_color="#2f3a4c",
         )
-        user_badge.grid(row=0, column=2, padx=18, pady=10, sticky="e")
-        ctk.CTkLabel(
-            user_badge, text="●", text_color=ACCENT_GREEN, font=ctk.CTkFont(size=12)
-        ).pack(side="left", padx=(12, 6), pady=8)
-        ctk.CTkLabel(
-            user_badge,
+        self.subtitle_lbl.pack(anchor="w")
+
+        # СПРАВА В ШАПКЕ: Выбор темы + Мамонтова Людмила Давыдовна
+        right_header = ctk.CTkFrame(self.header, fg_color="transparent")
+        right_header.grid(row=0, column=2, padx=18, pady=10, sticky="e")
+
+        self.theme_menu = ctk.CTkOptionMenu(
+            right_header,
+            values=list(THEMES.keys()),
+            command=self._on_theme_change,
+            width=175,
+            height=34,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+        )
+        self.theme_menu.set(self.current_theme_name)
+        self.theme_menu.pack(side="left", padx=(0, 12))
+
+        self.user_badge = ctk.CTkFrame(right_header, corner_radius=10, border_width=1)
+        self.user_badge.pack(side="left")
+        self.user_dot = ctk.CTkLabel(self.user_badge, text="●", font=ctk.CTkFont(size=12))
+        self.user_dot.pack(side="left", padx=(12, 6), pady=7)
+        self.user_lbl = ctk.CTkLabel(
+            self.user_badge,
             text=CFG["employee_name"],
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color=TEXT_MAIN,
-        ).pack(side="left", padx=(0, 14), pady=8)
+        )
+        self.user_lbl.pack(side="left", padx=(0, 14), pady=7)
 
         # === ЛЕВАЯ ПАНЕЛЬ НАВИГАЦИИ ===
-        left_nav = ctk.CTkFrame(
-            self, width=185, fg_color=BG_SIDEBAR, corner_radius=0,
-            border_width=1, border_color=BORDER_CARD
-        )
-        left_nav.grid(row=1, column=0, sticky="ns")
-        left_nav.grid_propagate(False)
+        self.left_nav = ctk.CTkFrame(self, width=185, corner_radius=0, border_width=1)
+        self.left_nav.grid(row=1, column=0, sticky="ns")
+        self.left_nav.grid_propagate(False)
 
-        ctk.CTkLabel(
-            left_nav, text="РАЗДЕЛЫ", font=ctk.CTkFont(size=11, weight="bold"), text_color=TEXT_MUTED
-        ).pack(anchor="w", padx=16, pady=(18, 8))
+        self.nav_title = ctk.CTkLabel(self.left_nav, text="РАЗДЕЛЫ", font=ctk.CTkFont(size=11, weight="bold"))
+        self.nav_title.pack(anchor="w", padx=16, pady=(18, 8))
 
-        ctk.CTkButton(
-            left_nav,
+        self.nav_active_btn = ctk.CTkButton(
+            self.left_nav,
             text="📄  Спецификация",
             anchor="w",
             height=40,
-            fg_color="#163529",
-            hover_color="#1d4737",
-            text_color="#34d399",
             font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(fill="x", padx=12, pady=4)
+        )
+        self.nav_active_btn.pack(fill="x", padx=12, pady=4)
 
-        ctk.CTkButton(
-            left_nav,
+        self.nav_spec_btn = ctk.CTkButton(
+            self.left_nav,
             text="📁  Папка Спец.",
             anchor="w",
             height=38,
             fg_color="transparent",
-            hover_color="#1e2530",
-            text_color=TEXT_MAIN,
             font=ctk.CTkFont(size=13),
             command=self._open_selected_spec_folder,
-        ).pack(fill="x", padx=12, pady=4)
+        )
+        self.nav_spec_btn.pack(fill="x", padx=12, pady=4)
 
-        ctk.CTkButton(
-            left_nav,
+        self.nav_calc_btn = ctk.CTkButton(
+            self.left_nav,
             text="📊  Папка Расчёты",
             anchor="w",
             height=38,
             fg_color="transparent",
-            hover_color="#1e2530",
-            text_color=TEXT_MAIN,
             font=ctk.CTkFont(size=13),
             command=self._open_selected_calc_folder,
-        ).pack(fill="x", padx=12, pady=4)
+        )
+        self.nav_calc_btn.pack(fill="x", padx=12, pady=4)
 
-        ctk.CTkButton(
-            left_nav,
+        self.nav_reload_btn = ctk.CTkButton(
+            self.left_nav,
             text="🔄  Обновить списки",
             anchor="w",
             height=38,
             fg_color="transparent",
-            hover_color="#1e2530",
-            text_color=TEXT_MUTED,
             font=ctk.CTkFont(size=12),
             command=self._reload_all_folders,
-        ).pack(fill="x", padx=12, pady=(16, 4))
+        )
+        self.nav_reload_btn.pack(fill="x", padx=12, pady=(16, 4))
 
         self.status_badge = ctk.CTkLabel(
-            left_nav,
+            self.left_nav,
             text="● Готов к работе",
-            text_color=ACCENT_GREEN,
             font=ctk.CTkFont(size=12, weight="bold"),
             wraplength=155,
             justify="left",
@@ -672,162 +908,257 @@ class SpecBuilderApp(ctk.CTk):
         self.status_badge.pack(side="bottom", anchor="w", padx=14, pady=16)
 
         # === ЦЕНТРАЛЬНАЯ РАБОЧАЯ ОБЛАСТЬ ===
-        self.center = ctk.CTkScrollableFrame(self, fg_color=BG_APP, corner_radius=0)
+        self.center = ctk.CTkScrollableFrame(self, corner_radius=0)
         self.center.grid(row=1, column=1, sticky="nsew", padx=14, pady=12)
 
-        # Карточка 1: Фирма и шаблон
-        card1 = ctk.CTkFrame(
-            self.center, fg_color=BG_CARD, corner_radius=12, border_width=1, border_color=BORDER_CARD
-        )
-        card1.pack(fill="x", pady=(0, 12))
+        # Карточка 1: Фирма и поиск папки в РАСЧЕТЫ
+        self.card1 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
+        self.card1.pack(fill="x", pady=(0, 12))
 
-        ctk.CTkLabel(
-            card1, text="1. ФИРМА И ШАБЛОН СПЕЦИФИКАЦИИ",
-            font=ctk.CTkFont(size=12, weight="bold"), text_color=ACCENT_AMBER
-        ).pack(anchor="w", padx=16, pady=(14, 6))
+        self.c1_title = ctk.CTkLabel(
+            self.card1, text="1. ФИРМА, ШАБЛОН И ПАПКА В «РАСЧЕТЫ»",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.c1_title.pack(anchor="w", padx=16, pady=(14, 6))
 
         self.selected_firm_lbl = ctk.CTkLabel(
-            card1, text="Выберите фирму в списке справа →",
-            font=ctk.CTkFont(size=16, weight="bold"), text_color=TEXT_MAIN
+            self.card1, text="Выберите фирму в списке справа →",
+            font=ctk.CTkFont(size=16, weight="bold"),
         )
-        self.selected_firm_lbl.pack(anchor="w", padx=16, pady=(0, 4))
+        self.selected_firm_lbl.pack(anchor="w", padx=16, pady=(0, 2))
 
         self.last_file_lbl = ctk.CTkLabel(
-            card1, text="Последний файл: —",
-            font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
+            self.card1, text="Последний файл: —",
+            font=ctk.CTkFont(size=12),
         )
-        self.last_file_lbl.pack(anchor="w", padx=16, pady=(0, 12))
+        self.last_file_lbl.pack(anchor="w", padx=16, pady=(0, 10))
 
-        ctk.CTkLabel(
-            card1, text="Папка фирмы в «РАСЧЕТЫ» (для подстановки нижней строки J–O):",
-            font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
-        ).pack(anchor="w", padx=16, pady=(0, 4))
-
-        self.calc_var = ctk.StringVar(value="(не выбрана)")
-        self.calc_combo = ctk.CTkComboBox(
-            card1,
-            variable=self.calc_var,
-            values=["(не выбрана)"] + self.all_calc_folders,
-            height=36,
-            fg_color=BG_INPUT,
-            border_color=BORDER_CARD,
-            button_color="#2a3342",
-            dropdown_fg_color=BG_CARD,
+        # Поиск по папке РАСЧЕТЫ
+        calc_top = ctk.CTkFrame(self.card1, fg_color="transparent")
+        calc_top.pack(fill="x", padx=16, pady=(0, 4))
+        self.calc_title_lbl = ctk.CTkLabel(
+            calc_top,
+            text="Папка фирмы в «РАСЧЕТЫ» (выбрано: ",
+            font=ctk.CTkFont(size=12),
         )
-        self.calc_combo.pack(fill="x", padx=16, pady=(0, 16))
+        self.calc_title_lbl.pack(side="left")
+        self.calc_selected_lbl = ctk.CTkLabel(
+            calc_top,
+            text="(не выбрана)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.calc_selected_lbl.pack(side="left")
+        self.calc_close_lbl = ctk.CTkLabel(calc_top, text=")", font=ctk.CTkFont(size=12))
+        self.calc_close_lbl.pack(side="left")
+
+        self.calc_search_var = ctk.StringVar()
+        self.calc_search_var.trace_add("write", lambda *_: self._render_calc_list(self.calc_search_var.get()))
+        self.calc_search_entry = ctk.CTkEntry(
+            self.card1,
+            textvariable=self.calc_search_var,
+            placeholder_text="🔍 Поиск папки фирмы в «РАСЧЕТЫ»...",
+            height=34,
+        )
+        self.calc_search_entry.pack(fill="x", padx=16, pady=(0, 6))
+
+        self.calc_scroll = ctk.CTkScrollableFrame(self.card1, height=110, corner_radius=8, border_width=1)
+        self.calc_scroll.pack(fill="x", padx=16, pady=(0, 14))
 
         # Карточка 2: Номер спецификации и счёт
-        card2 = ctk.CTkFrame(
-            self.center, fg_color=BG_CARD, corner_radius=12, border_width=1, border_color=BORDER_CARD
+        self.card2 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
+        self.card2.pack(fill="x", pady=(0, 12))
+
+        self.c2_title = ctk.CTkLabel(
+            self.card2, text="2. ПАРАМЕТРЫ СПЕЦИФИКАЦИИ И СЧЁТА 1С",
+            font=ctk.CTkFont(size=12, weight="bold"),
         )
-        card2.pack(fill="x", pady=(0, 12))
+        self.c2_title.pack(anchor="w", padx=16, pady=(14, 10))
 
-        ctk.CTkLabel(
-            card2, text="2. ПАРАМЕТРЫ СПЕЦИФИКАЦИИ И СЧЁТА 1С",
-            font=ctk.CTkFont(size=12, weight="bold"), text_color=ACCENT_BLUE
-        ).pack(anchor="w", padx=16, pady=(14, 10))
-
-        grid2 = ctk.CTkFrame(card2, fg_color="transparent")
-        grid2.pack(fill="x", padx=16, pady=(0, 14))
+        grid2 = ctk.CTkFrame(self.card2, fg_color="transparent")
+        grid2.pack(fill="x", padx=16, pady=(0, 12))
         grid2.grid_columnconfigure(0, weight=1)
         grid2.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(
-            grid2, text="Новый № спецификации:", font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
-        ).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
-        ctk.CTkLabel(
-            grid2, text="Номер счёта в 1С (например, 319):", font=ctk.CTkFont(size=12), text_color=TEXT_MUTED
-        ).grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
+        self.lbl_spec_num = ctk.CTkLabel(grid2, text="Новый № спецификации:", font=ctk.CTkFont(size=12))
+        self.lbl_spec_num.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+        self.lbl_inv_num = ctk.CTkLabel(grid2, text="Номер счёта в 1С (например, 319):", font=ctk.CTkFont(size=12))
+        self.lbl_inv_num.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
 
         self.spec_num_var = ctk.StringVar()
-        ctk.CTkEntry(
-            grid2, textvariable=self.spec_num_var, height=38, fg_color=BG_INPUT,
-            border_color=BORDER_CARD, font=ctk.CTkFont(size=14, weight="bold")
-        ).grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        self.spec_entry = ctk.CTkEntry(
+            grid2, textvariable=self.spec_num_var, height=38, font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.spec_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
 
         self.inv_var = ctk.StringVar()
-        ctk.CTkEntry(
-            grid2, textvariable=self.inv_var, placeholder_text="319", height=38, fg_color=BG_INPUT,
-            border_color=BORDER_CARD, font=ctk.CTkFont(size=14, weight="bold")
-        ).grid(row=1, column=1, sticky="ew", padx=(8, 0))
+        self.inv_entry = ctk.CTkEntry(
+            grid2, textvariable=self.inv_var, placeholder_text="319", height=38, font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.inv_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
         self.use_open_form_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            card2,
+        self.open_form_chk = ctk.CTkCheckBox(
+            self.card2,
             text="Печатная форма счёта уже открыта в 1С (забрать сразу, без поиска)",
             variable=self.use_open_form_var,
             font=ctk.CTkFont(size=12),
-            text_color=TEXT_MAIN,
-            fg_color=ACCENT_GREEN,
-            hover_color=ACCENT_GREEN_HOVER,
-        ).pack(anchor="w", padx=16, pady=(0, 16))
+        )
+        self.open_form_chk.pack(anchor="w", padx=16, pady=(0, 14))
 
         # Карточка 3: Журнал выполнения
-        card3 = ctk.CTkFrame(
-            self.center, fg_color=BG_CARD, corner_radius=12, border_width=1, border_color=BORDER_CARD
-        )
-        card3.pack(fill="both", expand=True, pady=(0, 12))
+        self.card3 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
+        self.card3.pack(fill="both", expand=True, pady=(0, 12))
 
-        ctk.CTkLabel(
-            card3, text="3. ХОД ВЫПОЛНЕНИЯ",
-            font=ctk.CTkFont(size=12, weight="bold"), text_color=ACCENT_GREEN
-        ).pack(anchor="w", padx=16, pady=(14, 6))
+        self.c3_title = ctk.CTkLabel(
+            self.card3, text="3. ХОД ВЫПОЛНЕНИЯ",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.c3_title.pack(anchor="w", padx=16, pady=(14, 6))
 
         self.log_box = ctk.CTkTextbox(
-            card3,
-            height=135,
-            fg_color=BG_INPUT,
-            border_width=1,
-            border_color=BORDER_CARD,
-            font=ctk.CTkFont(family="Consolas", size=12),
-            text_color="#cbd5e1",
+            self.card3, height=115, border_width=1, font=ctk.CTkFont(family="Consolas", size=12)
         )
         self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 14))
-        self._append_log("Готово. Выберите фирму справа, введите номер счёта и нажмите зелёную кнопку.")
+        self._append_log("Готово. Выберите фирму справа, при необходимости найдите папку в «РАСЧЕТЫ» и введите № счёта.")
+
+        # Кнопки запуска
+        btn_row = ctk.CTkFrame(self.center, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(4, 8))
+        btn_row.grid_columnconfigure(0, weight=3)
+        btn_row.grid_columnconfigure(1, weight=1)
 
         self.build_btn = ctk.CTkButton(
-            self.center,
+            btn_row,
             text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL",
             height=48,
             corner_radius=10,
-            fg_color=ACCENT_GREEN,
-            hover_color=ACCENT_GREEN_HOVER,
-            text_color="#052e16",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            command=self._on_start_build,
+            command=lambda: self._on_start_build(from_clipboard_only=False),
         )
-        self.build_btn.pack(fill="x", pady=(4, 8))
+        self.build_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        self.clip_btn = ctk.CTkButton(
+            btn_row,
+            text="📋 Вставить из буфера",
+            height=48,
+            corner_radius=10,
+            border_width=1,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=lambda: self._on_start_build(from_clipboard_only=True),
+        )
+        self.clip_btn.grid(row=0, column=1, sticky="ew")
 
         # === ПРАВАЯ ПАНЕЛЬ: СПРАВОЧНИК ФИРМ ===
-        right_panel = ctk.CTkFrame(
-            self, width=300, fg_color=BG_SIDEBAR, corner_radius=0,
-            border_width=1, border_color=BORDER_CARD
-        )
-        right_panel.grid(row=1, column=2, sticky="ns")
-        right_panel.grid_propagate(False)
+        self.right_panel = ctk.CTkFrame(self, width=300, corner_radius=0, border_width=1)
+        self.right_panel.grid(row=1, column=2, sticky="ns")
+        self.right_panel.grid_propagate(False)
 
         self.firms_header_lbl = ctk.CTkLabel(
-            right_panel,
+            self.right_panel,
             text=f"Справочник фирм ({len(self.all_clients)})",
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=ACCENT_AMBER,
         )
         self.firms_header_lbl.pack(anchor="w", padx=14, pady=(14, 8))
 
         self.search_var = ctk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._render_client_list(self.search_var.get()))
-        ctk.CTkEntry(
-            right_panel,
+        self.search_entry = ctk.CTkEntry(
+            self.right_panel,
             textvariable=self.search_var,
             placeholder_text="🔍 Поиск фирмы...",
             height=36,
-            fg_color=BG_INPUT,
-            border_color=BORDER_CARD,
-        ).pack(fill="x", padx=14, pady=(0, 10))
+        )
+        self.search_entry.pack(fill="x", padx=14, pady=(0, 10))
 
-        self.clients_scroll = ctk.CTkScrollableFrame(right_panel, fg_color="transparent")
+        self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 10))
 
+    # =========================================================================
+    # ПРИМЕНЕНИЕ ТЕМЫ
+    # =========================================================================
+    def _on_theme_change(self, theme_name: str):
+        self._apply_theme(theme_name, save=True)
+        self._render_client_list(self.search_var.get())
+        self._render_calc_list(self.calc_search_var.get())
+
+    def _apply_theme(self, theme_name: str, save: bool = True):
+        self.current_theme_name = theme_name
+        t = THEMES[theme_name]
+        self.t = t
+        ctk.set_appearance_mode(t["mode"])
+
+        if save:
+            self.user_settings["theme"] = theme_name
+            self.user_settings["folder_mapping"] = self.folder_mapping
+            save_user_settings(self.user_settings)
+
+        self.configure(fg_color=t["bg_app"])
+        self.header.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
+        self.logo_badge.configure(fg_color=t["accent"], text_color=t["accent_text"])
+        self.company_lbl.configure(text_color=t["text_main"])
+        self.subtitle_lbl.configure(text_color=t["text_muted"])
+
+        self.theme_menu.configure(
+            fg_color=t["badge_bg"],
+            button_color=t["accent"],
+            button_hover_color=t["accent_hover"],
+            text_color=t["text_main"],
+            dropdown_fg_color=t["bg_card"],
+            dropdown_hover_color=t["hover"],
+            dropdown_text_color=t["text_main"],
+        )
+
+        self.user_badge.configure(fg_color=t["badge_bg"], border_color=t["border"])
+        self.user_dot.configure(text_color=t["accent"])
+        self.user_lbl.configure(text_color=t["text_main"])
+
+        self.left_nav.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
+        self.nav_title.configure(text_color=t["text_muted"])
+        self.nav_active_btn.configure(fg_color=t["sel_bg"], hover_color=t["hover"], text_color=t["sel_text"])
+        self.nav_spec_btn.configure(hover_color=t["hover"], text_color=t["text_main"])
+        self.nav_calc_btn.configure(hover_color=t["hover"], text_color=t["text_main"])
+        self.nav_reload_btn.configure(hover_color=t["hover"], text_color=t["text_muted"])
+        self.status_badge.configure(text_color=t["accent"])
+
+        self.center.configure(fg_color=t["bg_app"])
+        for card in (self.card1, self.card2, self.card3):
+            card.configure(fg_color=t["bg_card"], border_color=t["border"])
+
+        self.c1_title.configure(text_color=t["title_accent1"])
+        self.c2_title.configure(text_color=t["title_accent2"])
+        self.c3_title.configure(text_color=t["title_accent3"])
+
+        self.selected_firm_lbl.configure(text_color=t["text_main"])
+        self.last_file_lbl.configure(text_color=t["text_muted"])
+        self.calc_title_lbl.configure(text_color=t["text_muted"])
+        self.calc_selected_lbl.configure(text_color=t["accent"])
+        self.calc_close_lbl.configure(text_color=t["text_muted"])
+
+        for ent in (self.calc_search_entry, self.spec_entry, self.inv_entry, self.search_entry):
+            ent.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
+
+        self.calc_scroll.configure(fg_color=t["bg_input"], border_color=t["border"])
+        self.lbl_spec_num.configure(text_color=t["text_muted"])
+        self.lbl_inv_num.configure(text_color=t["text_muted"])
+
+        self.open_form_chk.configure(
+            text_color=t["text_main"], fg_color=t["accent"], hover_color=t["accent_hover"]
+        )
+        self.log_box.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
+
+        self.build_btn.configure(
+            fg_color=t["accent"], hover_color=t["accent_hover"], text_color=t["accent_text"]
+        )
+        self.clip_btn.configure(
+            fg_color=t["bg_card"], hover_color=t["hover"], border_color=t["border"], text_color=t["text_main"]
+        )
+
+        self.right_panel.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
+        self.firms_header_lbl.configure(text_color=t["title_accent1"])
+
+    # =========================================================================
+    # СПИСКИ ФИРМ И ПАПОК «РАСЧЕТЫ»
+    # =========================================================================
     def _append_log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         self.log_box.configure(state="normal")
@@ -835,8 +1166,9 @@ class SpecBuilderApp(ctk.CTk):
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
 
-    def _set_status(self, msg: str, color: str = ACCENT_GREEN):
-        self.after(0, lambda: self.status_badge.configure(text=f"● {msg}", text_color=color))
+    def _set_status(self, msg: str, color: str = None):
+        c = color or self.t["accent"]
+        self.after(0, lambda: self.status_badge.configure(text=f"● {msg}", text_color=c))
         self.after(0, lambda: self._append_log(msg))
 
     def _render_client_list(self, query: str):
@@ -844,6 +1176,7 @@ class SpecBuilderApp(ctk.CTk):
             widget.destroy()
         self.client_buttons.clear()
 
+        t = self.t
         q = query.strip().lower()
         filtered = [c for c in self.all_clients if q in c.lower()]
         self.firms_header_lbl.configure(text=f"Справочник фирм ({len(filtered)})")
@@ -854,29 +1187,73 @@ class SpecBuilderApp(ctk.CTk):
                 self.clients_scroll,
                 text=name,
                 anchor="w",
-                height=36,
+                height=34,
                 corner_radius=8,
-                fg_color="#163529" if is_sel else BG_CARD,
-                hover_color="#1f2937",
+                fg_color=t["sel_bg"] if is_sel else t["bg_card"],
+                hover_color=t["hover"],
                 border_width=1,
-                border_color=ACCENT_GREEN if is_sel else BORDER_CARD,
-                text_color="#34d399" if is_sel else TEXT_MAIN,
+                border_color=t["accent"] if is_sel else t["border"],
+                text_color=t["sel_text"] if is_sel else t["text_main"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
                 command=lambda n=name: self._select_client(n),
             )
-            btn.pack(fill="x", pady=3, padx=4)
+            btn.pack(fill="x", pady=2, padx=4)
             self.client_buttons[name] = btn
+
+    def _render_calc_list(self, query: str):
+        for widget in self.calc_scroll.winfo_children():
+            widget.destroy()
+        self.calc_buttons.clear()
+
+        t = self.t
+        q = query.strip().lower()
+        items = ["(не выбрана)"] + [f for f in self.all_calc_folders if q in f.lower()]
+        for name in items[:80]:
+            is_sel = name == self.selected_calc_folder
+            btn = ctk.CTkButton(
+                self.calc_scroll,
+                text=name,
+                anchor="w",
+                height=28,
+                corner_radius=6,
+                fg_color=t["sel_bg"] if is_sel else "transparent",
+                hover_color=t["hover"],
+                text_color=t["sel_text"] if is_sel else t["text_main"],
+                font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
+                command=lambda n=name: self._select_calc_folder(n),
+            )
+            btn.pack(fill="x", pady=1, padx=2)
+            self.calc_buttons[name] = btn
+
+    def _select_calc_folder(self, folder_name: str):
+        self.selected_calc_folder = folder_name
+        self.calc_selected_lbl.configure(text=folder_name)
+
+        if self.selected_client and folder_name != "(не выбрана)":
+            self.folder_mapping[self.selected_client] = folder_name
+            self.user_settings["folder_mapping"] = self.folder_mapping
+            save_user_settings(self.user_settings)
+
+        t = self.t
+        for name, btn in self.calc_buttons.items():
+            is_sel = name == folder_name
+            btn.configure(
+                fg_color=t["sel_bg"] if is_sel else "transparent",
+                text_color=t["sel_text"] if is_sel else t["text_main"],
+                font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
+            )
 
     def _select_client(self, client_name: str):
         self.selected_client = client_name
         self.selected_firm_lbl.configure(text=client_name)
 
+        t = self.t
         for name, btn in self.client_buttons.items():
             is_sel = name == client_name
             btn.configure(
-                fg_color="#163529" if is_sel else BG_CARD,
-                border_color=ACCENT_GREEN if is_sel else BORDER_CARD,
-                text_color="#34d399" if is_sel else TEXT_MAIN,
+                fg_color=t["sel_bg"] if is_sel else t["bg_card"],
+                border_color=t["accent"] if is_sel else t["border"],
+                text_color=t["sel_text"] if is_sel else t["text_main"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
             )
 
@@ -886,13 +1263,17 @@ class SpecBuilderApp(ctk.CTk):
             self.spec_num_var.set(str(last_num + 1))
             self.last_file_lbl.configure(
                 text=f"Последний файл: {os.path.basename(last_file)}",
-                text_color="#94a3b8",
+                text_color=t["text_muted"],
             )
         except Exception as e:
             self.spec_num_var.set("1")
-            self.last_file_lbl.configure(text=f"Внимание: {e}", text_color="#f87171")
+            self.last_file_lbl.configure(text=f"Внимание: {e}", text_color="#ef4444")
 
-        self.calc_var.set(guess_calc_folder(client_name, self.all_calc_folders))
+        guessed = guess_calc_folder(client_name, self.all_calc_folders, self.folder_mapping)
+        self.selected_calc_folder = guessed
+        self.calc_selected_lbl.configure(text=guessed)
+        self.calc_search_var.set("")
+        self._render_calc_list("")
 
     def _open_selected_spec_folder(self):
         if not self.selected_client:
@@ -903,7 +1284,7 @@ class SpecBuilderApp(ctk.CTk):
             os.startfile(folder)
 
     def _open_selected_calc_folder(self):
-        calc = self.calc_var.get().strip()
+        calc = self.selected_calc_folder
         if calc and calc != "(не выбрана)":
             folder = os.path.join(CFG["calc_root"], calc)
             if os.path.isdir(folder):
@@ -914,11 +1295,11 @@ class SpecBuilderApp(ctk.CTk):
 
     def _reload_all_folders(self):
         self._load_folders()
-        self.calc_combo.configure(values=["(не выбрана)"] + self.all_calc_folders)
         self._render_client_list(self.search_var.get())
+        self._render_calc_list(self.calc_search_var.get())
         self._append_log("Списки папок обновлены.")
 
-    def _on_start_build(self):
+    def _on_start_build(self, from_clipboard_only: bool = False):
         if not self.selected_client:
             messagebox.showwarning("Внимание", "Сначала выберите фирму в списке справа.")
             return
@@ -934,9 +1315,10 @@ class SpecBuilderApp(ctk.CTk):
             messagebox.showwarning("Внимание", "Номер спецификации должен быть числом.")
             return
 
-        calc_folder_name = self.calc_var.get().strip()
+        calc_folder_name = self.selected_calc_folder
         use_open = self.use_open_form_var.get()
         self.build_btn.configure(state="disabled", text="ВЫПОЛНЯЕТСЯ СБОРКА...")
+        self.clip_btn.configure(state="disabled")
 
         def worker():
             try:
@@ -947,9 +1329,10 @@ class SpecBuilderApp(ctk.CTk):
                     inv_num,
                     new_spec_num,
                     use_open,
-                    lambda m: self._set_status(m, ACCENT_AMBER),
+                    from_clipboard_only,
+                    lambda m: self._set_status(m, self.t["title_accent1"]),
                 )
-                self._set_status("Готово! Спецификация открыта в Excel.", ACCENT_GREEN)
+                self._set_status("Готово! Спецификация открыта в Excel.", self.t["accent"])
                 self.after(
                     0,
                     lambda: messagebox.showinfo(
@@ -957,7 +1340,7 @@ class SpecBuilderApp(ctk.CTk):
                     ),
                 )
             except Exception as e:
-                self._set_status(f"Ошибка: {e}", "#f87171")
+                self._set_status(f"Ошибка: {e}", "#ef4444")
                 self.after(0, lambda err=str(e): messagebox.showerror("Ошибка", err))
             finally:
                 self.after(
@@ -966,6 +1349,7 @@ class SpecBuilderApp(ctk.CTk):
                         state="normal", text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL"
                     ),
                 )
+                self.after(0, lambda: self.clip_btn.configure(state="normal"))
 
         threading.Thread(target=worker, daemon=True).start()
 
