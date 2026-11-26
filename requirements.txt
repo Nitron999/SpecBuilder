@@ -1,0 +1,6 @@
+pywinauto
+pywin32
+openpyxl
+xlrd
+num2words
+pyinstaller

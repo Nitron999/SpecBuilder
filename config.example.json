@@ -1,0 +1,9 @@
+{
+  "1c_exe": "C:\\Program Files\\1cv8\\common\\1cestart.exe",
+  "1c_base_args": "ENTERPRISE /S\"DB01\\pp_buh_new\" /N\"ЛОГИН\" /P\"ПАРОЛЬ\"",
+  "specs_root": "\\\\Fs01\\obmen\\ВП\\Спецификации 2019 Новая форма",
+  "calc_root": "\\\\Fs01\\obmen\\РАСЧЕТЫ",
+  "folder_mapping": {
+    "Электроприбор": "Elektropribor_K"
+  }
+}
