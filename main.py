@@ -18,7 +18,7 @@ import win32com.client
 import win32con
 import xlrd
 from num2words import num2words
-from pywinauto import Desktop
+from pywinauto import Desktop, mouse
 
 
 # =============================================================================
@@ -452,6 +452,20 @@ def get_el_text_all(el) -> str:
     return " ".join(parts).strip()
 
 
+def has_open_invoice_doc(win_1c) -> bool:
+    """Проверяет, открылась ли форма документа счёта (по кнопке «Провести и закрыть»)."""
+    try:
+        for el in win_1c.descendants():
+            txt = (el.window_text() or "").strip().lower()
+            if txt == "провести и закрыть":
+                r = el.rectangle()
+                if r.width() > 20 and r.height() > 10:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, exact_only: bool = False) -> bool:
     deadline = time.time() + timeout
     needle = exact_or_part.lower().replace("ё", "е")
@@ -492,15 +506,21 @@ def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
 
 
 def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
+    """
+    Вводит номер счёта в поле поиска справа и возвращает нижнюю координату (Y)
+    панели инструментов списка, чтобы потом точно кликнуть в 1-ю отфильтрованную строку.
+    """
     win_rect = win_1c.rectangle()
-    toolbar_y = None
+    toolbar_top = None
+    toolbar_bottom = None
 
     try:
         for el in win_1c.descendants():
             if (el.window_text() or "").strip().lower() == "создать":
                 r = el.rectangle()
                 if r.width() > 10 and r.top > win_rect.top + 60:
-                    toolbar_y = r.top
+                    toolbar_top = r.top
+                    toolbar_bottom = r.bottom
                     break
     except Exception:
         pass
@@ -516,13 +536,15 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
                 continue
             name = (el.window_text() or "").lower()
             is_right = r.left > (win_rect.left + win_rect.width() * 0.45)
-            near_toolbar = (toolbar_y is None) or (abs(r.top - toolbar_y) < 45)
+            near_toolbar = (toolbar_top is None) or (abs(r.top - toolbar_top) < 45)
             if "поиск" in name and near_toolbar:
                 candidates.insert(0, el)
             elif is_right and near_toolbar:
                 candidates.append(el)
         if candidates:
             search_edit = candidates[0]
+            if toolbar_bottom is None:
+                toolbar_bottom = search_edit.rectangle().bottom
     except Exception:
         pass
 
@@ -547,51 +569,71 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
         press_vk(win32con.VK_RETURN)
         time.sleep(2.2)
 
+    return toolbar_bottom
 
-def double_click_invoice_row(win_1c, invoice_number: str, log_cb) -> bool:
+
+def double_click_invoice_row(win_1c, invoice_number: str, toolbar_bottom, log_cb) -> bool:
     """
-    1. Ищет ячейку с нужным номером счёта (и в Name, и в Value).
-    2. Если 1С прячет текст ячеек от UIA — делает двойной клик ровно в первую
-       отфильтрованную строку прямо под заголовком столбца «Номер» / «Дата».
+    Открывает отфильтрованную строку счёта в 1С:
+    1. Ищет ячейку с номером счёта в дереве UIA.
+    2. Ищет заголовок столбца («Номер» / «Дата» / «Контрагент») и кликает под ним.
+    3. Если 1С прячет таблицу от UIA — делает двойной клик по точным экранным
+       координатам 1-й строки таблицы под панелью «Создать» и проверяет, что
+       открылась форма счёта («Провести и закрыть»).
     """
     num_str = str(invoice_number).strip().lstrip("0") or "0"
     win_rect = win_1c.rectangle()
     pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
 
-    for _ in range(3):
-        try:
-            for el in win_1c.descendants():
-                txt = get_el_text_all(el)
-                if not txt:
-                    continue
-                r = el.rectangle()
-                if r.top < win_rect.top + 130 or r.width() < 20 or r.height() < 10:
-                    continue
-                if r.left > win_rect.left + win_rect.width() * 0.6:
-                    continue
-                if pattern.search(txt):
-                    log_cb(f"Найдена строка счёта «{txt}» — открываем...")
-                    el.double_click_input()
+    # Способ 1: ищем текст номера счёта
+    try:
+        for el in win_1c.descendants():
+            txt = get_el_text_all(el)
+            if not txt:
+                continue
+            r = el.rectangle()
+            if r.top < win_rect.top + 130 or r.width() < 20 or r.height() < 10:
+                continue
+            if r.left > win_rect.left + win_rect.width() * 0.6:
+                continue
+            if pattern.search(txt):
+                log_cb(f"Найдена строка счёта «{txt}» — открываем...")
+                el.double_click_input()
+                time.sleep(1.8)
+                if has_open_invoice_doc(win_1c):
                     return True
-        except Exception:
-            pass
-        time.sleep(0.4)
+    except Exception:
+        pass
 
-    # Запасной вариант: 1-я отфильтрованная строка прямо под шапкой «Номер» / «Контрагент» / «Дата»
+    # Способ 2: ищем шапку колонки (учитывая стрелки сортировки вроде "Номер ↓")
     try:
         for hdr_name in ("номер", "контрагент", "дата"):
             for el in win_1c.descendants():
                 txt = (el.window_text() or "").strip().lower()
-                if txt == hdr_name:
+                if txt == hdr_name or txt.startswith(hdr_name + " "):
                     r = el.rectangle()
                     if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 100:
-                        click_x = (r.left + min(r.right, r.left + 80)) // 2 - win_rect.left
-                        click_y = r.bottom + 26 - win_rect.top
-                        log_cb(f"Открываем отфильтрованную строку счёта № {invoice_number}...")
-                        win_1c.double_click_input(coords=(click_x, click_y))
-                        return True
+                        abs_x = (r.left + min(r.right, r.left + 80)) // 2
+                        abs_y = r.bottom + 24
+                        log_cb(f"Открываем строку под столбцом «{hdr_name.capitalize()}»...")
+                        mouse.double_click(coords=(abs_x, abs_y))
+                        time.sleep(1.8)
+                        if has_open_invoice_doc(win_1c):
+                            return True
     except Exception:
         pass
+
+    # Способ 3: точный геометрический двойной клик под панелью «Создать» / поиском
+    base_y = toolbar_bottom if toolbar_bottom else (win_rect.top + 135)
+    abs_x = win_rect.left + int(win_rect.width() * 0.22)
+
+    for dy in (78, 52, 96):
+        abs_y = base_y + dy
+        log_cb(f"Открываем 1-ю отфильтрованную строку счёта (y={abs_y})...")
+        mouse.double_click(coords=(abs_x, abs_y))
+        time.sleep(1.8)
+        if has_open_invoice_doc(win_1c):
+            return True
 
     return False
 
@@ -669,14 +711,14 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
                 click_1c_element_by_name(win_1c, "Счета покупателям", timeout=6.0)
         time.sleep(1.5)
 
-        focus_list_search_box_and_filter(win_1c, invoice_number, log_cb)
+        toolbar_bottom = focus_list_search_box_and_filter(win_1c, invoice_number, log_cb)
 
-        if not double_click_invoice_row(win_1c, invoice_number, log_cb):
+        if not double_click_invoice_row(win_1c, invoice_number, toolbar_bottom, log_cb):
             raise RuntimeError(
                 f"В списке «Счета покупателям» не удалось открыть строку со счётом № {invoice_number}.\n"
                 "Проверь номер счёта и период отбора в 1С."
             )
-        time.sleep(2.4)
+        time.sleep(1.0)
 
         click_document_print_77(win_1c, log_cb)
 
@@ -686,9 +728,9 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
 
     try:
         rect = win_1c.rectangle()
-        cx = int((rect.left + rect.right) * 0.45)
-        cy = int((rect.top + rect.bottom) * 0.45)
-        win_1c.click_input(coords=(cx - rect.left, cy - rect.top))
+        abs_x = int((rect.left + rect.right) * 0.45)
+        abs_y = int((rect.top + rect.bottom) * 0.45)
+        mouse.click(coords=(abs_x, abs_y))
         time.sleep(0.4)
     except Exception:
         pass
