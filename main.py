@@ -360,13 +360,6 @@ def amount_in_words(amount: float) -> str:
 
 
 def split_board_and_ps(raw_name: str):
-    """
-    Разбирает строку из 1С вида:
-      'Печ.платы ps 412468 6U7102201v2 (6Ю7.102.201v2)'
-      'Печ.платы ps 638725 bvp1'
-      'Печ.платы ps657753 758782.271 (ИВУА.758782.271)'
-    Возвращает кортеж: (наименование_платы, зав_номер_заказа).
-    """
     s = raw_name.strip()
     m = re.search(r"\bps\s*(\d+)\s+(.+)$", s, flags=re.IGNORECASE)
     if m:
@@ -441,6 +434,24 @@ def find_1c_window():
     return None
 
 
+def get_el_text_all(el) -> str:
+    parts = []
+    try:
+        t = el.window_text()
+        if t:
+            parts.append(str(t))
+    except Exception:
+        pass
+    try:
+        lp = el.legacy_properties()
+        v = lp.get("Value")
+        if v:
+            parts.append(str(v))
+    except Exception:
+        pass
+    return " ".join(parts).strip()
+
+
 def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, exact_only: bool = False) -> bool:
     deadline = time.time() + timeout
     needle = exact_or_part.lower().replace("ё", "е")
@@ -461,7 +472,6 @@ def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, e
 
 
 def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
-    """Ищет пункт выпадающего меню 1С по всему Desktop (меню в Такси часто отдельное окно)."""
     deadline = time.time() + timeout
     needle = exact_text.lower().replace("ё", "е")
     desktop = Desktop(backend="uia")
@@ -482,10 +492,6 @@ def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
 
 
 def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
-    """
-    Находит поле быстрого поиска справа на панели «Счета покупателям»
-    (НЕ верхний глобальный поиск Ctrl+Shift+F), вводит номер счёта и жмёт Enter.
-    """
     win_rect = win_1c.rectangle()
     toolbar_y = None
 
@@ -524,7 +530,7 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
         log_cb(f"Кликаем в поле поиска справа и вводим «{invoice_number}»...")
         search_edit.click_input()
         time.sleep(0.3)
-        press_ctrl_key(0x41)  # Ctrl+A
+        press_ctrl_key(0x41)
         time.sleep(0.1)
         press_vk(win32con.VK_BACK)
         time.sleep(0.15)
@@ -544,17 +550,18 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
 
 def double_click_invoice_row(win_1c, invoice_number: str, log_cb) -> bool:
     """
-    Ищет в отфильтрованной таблице строку с нужным номером счёта (например, 0000-000319)
-    и делает по ней двойной клик.
+    1. Ищет ячейку с нужным номером счёта (и в Name, и в Value).
+    2. Если 1С прячет текст ячеек от UIA — делает двойной клик ровно в первую
+       отфильтрованную строку прямо под заголовком столбца «Номер» / «Дата».
     """
     num_str = str(invoice_number).strip().lstrip("0") or "0"
     win_rect = win_1c.rectangle()
-    pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}$")
+    pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
 
-    for _ in range(6):
+    for _ in range(3):
         try:
             for el in win_1c.descendants():
-                txt = (el.window_text() or "").strip()
+                txt = get_el_text_all(el)
                 if not txt:
                     continue
                 r = el.rectangle()
@@ -568,12 +575,28 @@ def double_click_invoice_row(win_1c, invoice_number: str, log_cb) -> bool:
                     return True
         except Exception:
             pass
-        time.sleep(0.5)
+        time.sleep(0.4)
+
+    # Запасной вариант: 1-я отфильтрованная строка прямо под шапкой «Номер» / «Контрагент» / «Дата»
+    try:
+        for hdr_name in ("номер", "контрагент", "дата"):
+            for el in win_1c.descendants():
+                txt = (el.window_text() or "").strip().lower()
+                if txt == hdr_name:
+                    r = el.rectangle()
+                    if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 100:
+                        click_x = (r.left + min(r.right, r.left + 80)) // 2 - win_rect.left
+                        click_y = r.bottom + 26 - win_rect.top
+                        log_cb(f"Открываем отфильтрованную строку счёта № {invoice_number}...")
+                        win_1c.double_click_input(coords=(click_x, click_y))
+                        return True
+    except Exception:
+        pass
+
     return False
 
 
 def click_document_print_77(win_1c, log_cb):
-    """Нажимает кнопку «Печать» в открытом счёте и выбирает «Счёт в формате 7.7»."""
     win_rect = win_1c.rectangle()
     print_btn = None
 
@@ -650,10 +673,10 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
 
         if not double_click_invoice_row(win_1c, invoice_number, log_cb):
             raise RuntimeError(
-                f"В списке «Счета покупателям» не найдена строка со счётом № {invoice_number}.\n"
-                "Проверь номер счёта и период отбора в 1С (например, год)."
+                f"В списке «Счета покупателям» не удалось открыть строку со счётом № {invoice_number}.\n"
+                "Проверь номер счёта и период отбора в 1С."
             )
-        time.sleep(2.3)
+        time.sleep(2.4)
 
         click_document_print_77(win_1c, log_cb)
 
@@ -695,10 +718,6 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
 
 
 def parse_invoice_clipboard_text(raw_text: str) -> dict:
-    """
-    Универсально парсит и «Счёт в формате 7.7» (Ед. | Кол-во | Цена | Сумма | Срок*),
-    и стандартный «Счет на оплату» (Кол-во | Ед. | Цена | Сумма).
-    """
     invoice_date = datetime.now().strftime("%d.%m.%Y")
     items = []
     totals = {"no_nds": 0.0, "nds": 0.0, "with_nds": 0.0}
@@ -856,7 +875,7 @@ def find_calc_bottom_row(calc_folder: str, board_name: str, raw_name: str = "") 
 
 
 # =============================================================================
-# СБОРКА ИТОГОВОГО EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ (ДИНАМИЧЕСКИЙ ПОИСК СТРОК)
+# СБОРКА ИТОГОВОГО EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ
 # =============================================================================
 def build_specification(
     cfg: dict,
@@ -908,7 +927,6 @@ def build_specification(
         wb = excel.Workbooks.Open(new_file)
         ws = wb.Sheets(1)
 
-        # 1. Обновляем "Приложение № ..." в строках 1-3 (сохраняя "к договору ...", если оно в той же ячейке)
         for r in range(1, 4):
             for c in range(1, 17):
                 val = ws.Cells(r, c).Value
@@ -920,7 +938,6 @@ def build_specification(
                         flags=re.IGNORECASE,
                     )
 
-        # 2. Обновляем "Спецификация № ... от ... г." в строках 2-6
         spec_title_updated = False
         for r in range(2, 7):
             for c in range(1, 5):
@@ -934,7 +951,6 @@ def build_specification(
         if not spec_title_updated:
             ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
 
-        # 3. Динамически находим строку заголовка таблицы (где есть "Наименование")
         header_row = 8
         for r in range(5, 13):
             b_val = str(ws.Cells(r, 2).Value or "").lower()
@@ -943,7 +959,6 @@ def build_specification(
                 break
         start_row = header_row + 1
 
-        # 4. Находим строку "Итого без НДС"
         total_row = start_row
         while total_row < 150:
             val = str(ws.Cells(total_row, 1).Value or "").lower()
@@ -962,24 +977,22 @@ def build_specification(
             for _ in range(existing_rows - needed_rows):
                 ws.Rows(start_row + needed_rows).Delete()
 
-        # 5. Заполняем позиции (столбцы A-O)
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
-            ws.Cells(r, 1).Value = idx                                   # A: № п/п
-            ws.Cells(r, 2).Value = item["name"]                          # B: Наименование платы
-            ws.Cells(r, 3).Value = item["ps_num"]                        # C: Зав. № заказа (Пэсочка)
-            ws.Cells(r, 4).Value = item["term"]                          # D: Срок пост.
-            ws.Cells(r, 5).Value = item["unit"]                          # E: Ед. изм.
-            ws.Cells(r, 6).Value = item["qty"]                           # F: Кол-во
-            ws.Cells(r, 7).Value = item["price"]                         # G: Цена
-            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)   # H: Сумма
-            ws.Cells(r, 9).Value = ""                                    # I: Площадь
+            ws.Cells(r, 1).Value = idx
+            ws.Cells(r, 2).Value = item["name"]
+            ws.Cells(r, 3).Value = item["ps_num"]
+            ws.Cells(r, 4).Value = item["term"]
+            ws.Cells(r, 5).Value = item["unit"]
+            ws.Cells(r, 6).Value = item["qty"]
+            ws.Cells(r, 7).Value = item["price"]
+            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
+            ws.Cells(r, 9).Value = ""
 
             tech = find_calc_bottom_row(calc_folder, item["name"], item["raw_name"])
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
 
-        # 6. Динамически находим и заполняем строки итогов и сумм прописью
         new_total_row = start_row + needed_rows
         for r in range(new_total_row, new_total_row + 12):
             a_low = str(ws.Cells(r, 1).Value or "").lower()
@@ -1059,7 +1072,6 @@ class SpecBuilderApp(ctk.CTk):
         self.grid_columnconfigure(2, weight=0)
         self.grid_rowconfigure(1, weight=1)
 
-        # === ВЕРХНЯЯ ШАПКА ===
         self.header = ctk.CTkFrame(self, height=64, corner_radius=0, border_width=1)
         self.header.grid(row=0, column=0, columnspan=3, sticky="ew")
         self.header.grid_columnconfigure(1, weight=1)
@@ -1092,7 +1104,6 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.subtitle_lbl.pack(anchor="w")
 
-        # СПРАВА В ШАПКЕ: Выбор темы + Мамонтова Людмила Давыдовна
         right_header = ctk.CTkFrame(self.header, fg_color="transparent")
         right_header.grid(row=0, column=2, padx=18, pady=10, sticky="e")
 
@@ -1119,7 +1130,6 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.user_lbl.pack(side="left", padx=(0, 14), pady=7)
 
-        # === ЛЕВАЯ ПАНЕЛЬ НАВИГАЦИИ ===
         self.left_nav = ctk.CTkFrame(self, width=185, corner_radius=0, border_width=1)
         self.left_nav.grid(row=1, column=0, sticky="ns")
         self.left_nav.grid_propagate(False)
@@ -1178,11 +1188,9 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.status_badge.pack(side="bottom", anchor="w", padx=14, pady=16)
 
-        # === ЦЕНТРАЛЬНАЯ РАБОЧАЯ ОБЛАСТЬ ===
         self.center = ctk.CTkScrollableFrame(self, corner_radius=0)
         self.center.grid(row=1, column=1, sticky="nsew", padx=14, pady=12)
 
-        # Карточка 1: Фирма и поиск папки в РАСЧЕТЫ
         self.card1 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card1.pack(fill="x", pady=(0, 12))
 
@@ -1230,7 +1238,6 @@ class SpecBuilderApp(ctk.CTk):
         self.calc_scroll = ctk.CTkScrollableFrame(self.card1, height=110, corner_radius=8, border_width=1)
         self.calc_scroll.pack(fill="x", padx=16, pady=(0, 14))
 
-        # Карточка 2: Номер спецификации и счёт
         self.card2 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card2.pack(fill="x", pady=(0, 12))
 
@@ -1271,7 +1278,6 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.open_form_chk.pack(anchor="w", padx=16, pady=(0, 14))
 
-        # Карточка 3: Журнал выполнения
         self.card3 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card3.pack(fill="both", expand=True, pady=(0, 12))
 
@@ -1287,7 +1293,6 @@ class SpecBuilderApp(ctk.CTk):
         self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 14))
         self._append_log("Готово. Выберите фирму справа, при необходимости найдите папку в «РАСЧЕТЫ» и введите № счёта.")
 
-        # Кнопки запуска
         btn_row = ctk.CTkFrame(self.center, fg_color="transparent")
         btn_row.pack(fill="x", pady=(4, 8))
         btn_row.grid_columnconfigure(0, weight=3)
@@ -1314,7 +1319,6 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.clip_btn.grid(row=0, column=1, sticky="ew")
 
-        # === ПРАВАЯ ПАНЕЛЬ: СПРАВОЧНИК ФИРМ ===
         self.right_panel = ctk.CTkFrame(self, width=300, corner_radius=0, border_width=1)
         self.right_panel.grid(row=1, column=2, sticky="ns")
         self.right_panel.grid_propagate(False)
@@ -1339,9 +1343,6 @@ class SpecBuilderApp(ctk.CTk):
         self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 10))
 
-    # =========================================================================
-    # ПРИМЕНЕНИЕ ТЕМЫ
-    # =========================================================================
     def _on_theme_change(self, theme_name: str):
         self._apply_theme(theme_name, save=True)
         self._render_client_list(self.search_var.get())
@@ -1422,9 +1423,6 @@ class SpecBuilderApp(ctk.CTk):
         self.right_panel.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
         self.firms_header_lbl.configure(text_color=t["title_accent1"])
 
-    # =========================================================================
-    # СПИСКИ ФИРМ И ПАПОК «РАСЧЕТЫ»
-    # =========================================================================
     def _append_log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         self.log_box.configure(state="normal")
@@ -1586,6 +1584,9 @@ class SpecBuilderApp(ctk.CTk):
         self.build_btn.configure(state="disabled", text="ВЫПОЛНЯЕТСЯ СБОРКА...")
         self.clip_btn.configure(state="disabled")
 
+        if not from_clipboard_only:
+            self.iconify()
+
         def worker():
             try:
                 res = build_specification(
@@ -1599,6 +1600,7 @@ class SpecBuilderApp(ctk.CTk):
                     lambda m: self._set_status(m, self.t["title_accent1"]),
                 )
                 self._set_status("Готово! Спецификация открыта в Excel.", self.t["accent"])
+                self.after(0, self.deiconify)
                 self.after(
                     0,
                     lambda: messagebox.showinfo(
@@ -1607,6 +1609,7 @@ class SpecBuilderApp(ctk.CTk):
                 )
             except Exception as e:
                 self._set_status(f"Ошибка: {e}", "#ef4444")
+                self.after(0, self.deiconify)
                 self.after(0, lambda err=str(e): messagebox.showerror("Ошибка", err))
             finally:
                 self.after(
