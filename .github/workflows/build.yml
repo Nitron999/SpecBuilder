@@ -23,7 +23,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --noconsole --name SpecBuilder --hidden-import=win32com.client --hidden-import=comtypes.stream main.py
+          pyinstaller --onefile --noconsole --name SpecBuilder --collect-all customtkinter --hidden-import=win32com.client --hidden-import=win32clipboard --hidden-import=comtypes.stream main.py
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
