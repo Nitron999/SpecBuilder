@@ -179,6 +179,10 @@ def press_ctrl_key(vk_code: int):
     win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
+def press_ctrl_f4():
+    press_ctrl_key(win32con.VK_F4)
+
+
 def press_vk(vk_code: int):
     win32api.keybd_event(vk_code, 0, 0, 0)
     time.sleep(0.05)
@@ -359,11 +363,6 @@ def split_board_and_ps(raw_name: str):
 
 
 def find_latest_spec(spec_folder: str):
-    """
-    Выбирает самую актуальную спецификацию: сначала по самому свежему ГОДУ изменения
-    (чтобы 2026 год всегда побеждал старый 2025 с большим номером), затем по номеру сп.,
-    затем по дате изменения.
-    """
     patterns = [
         re.compile(r"сп\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
         re.compile(r"спец(?:ификация)?\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
@@ -393,7 +392,7 @@ def find_latest_spec(spec_folder: str):
 
 
 # =============================================================================
-# РАБОТА С 1С (ПОИСК, СНЯТИЕ ПЛОЩАДИ + ИГК ИЗ ДОКУМЕНТА, ПЕЧАТЬ 7.7)
+# РАБОТА С 1С (ПОИСК, СНЯТИЕ ПЛОЩАДИ ЧЕРЕЗ «ВЫВЕСТИ СПИСОК» + ИГК, ПЕЧАТЬ 7.7)
 # =============================================================================
 def find_1c_window():
     for w in Desktop(backend="uia").windows():
@@ -498,7 +497,6 @@ def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 2.5) -> bool:
 
 
 def switch_to_open_invoice_tab(win_1c, invoice_number: str) -> bool:
-    """Если открыта «Печать документа», переключается на соседнюю вкладку «Счет покупателю 0000-XXXXXX»."""
     num_clean = str(invoice_number).strip().lstrip("0") or "0"
     num_pat = re.compile(rf"(?:^|[-0]){re.escape(num_clean)}(?:\b|\s|от)")
     try:
@@ -516,8 +514,37 @@ def switch_to_open_invoice_tab(win_1c, invoice_number: str) -> bool:
     return False
 
 
+def parse_areas_from_tsv(txt: str) -> dict:
+    areas = {}
+    area_col_idx = None
+    for line in txt.splitlines():
+        cols = [c.strip() for c in line.split("\t")]
+        low_cols = [c.lower() for c in cols]
+        if any("площад" in c for c in low_cols):
+            for ci, c in enumerate(low_cols):
+                if "площад" in c:
+                    area_col_idx = ci
+                    break
+            continue
+        if cols and cols[0].isdigit():
+            row_num = int(cols[0])
+            if area_col_idx is not None and area_col_idx < len(cols):
+                val = parse_number(cols[area_col_idx])
+                if val > 0:
+                    areas[row_num] = val
+            elif len(cols) >= 4 and looks_like_number(cols[3]):
+                val = parse_number(cols[3])
+                if val > 0:
+                    areas[row_num] = val
+    return areas
+
+
 def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
-    """Забирает из открытого документа «Счет покупателю» колонку «Площадь» и поле ИГК."""
+    """
+    Забирает из открытого документа «Счет покупателю» в 1С:
+      - ИГК (20-25 цифр)
+      - колонку «Площадь» через ПКМ по таблице -> «Вывести список...» -> Enter -> Ctrl+A/C -> Ctrl+F4
+    """
     result = {"areas": {}, "igk": ""}
     try:
         win_rect = win_1c.rectangle()
@@ -544,42 +571,37 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
         if add_btn_bottom is None:
             return result
 
-        clear_clipboard()
-        time.sleep(0.15)
-        mouse.click(coords=(win_rect.left + int(win_rect.width() * 0.25), add_btn_bottom + 42))
+        log_cb("Снимаем колонку «Площадь» из таблицы документа 1С...")
+        tbl_x = win_rect.left + int(win_rect.width() * 0.25)
+        tbl_y = add_btn_bottom + 48
+        mouse.click(coords=(tbl_x, tbl_y))
         time.sleep(0.25)
-        press_ctrl_key(0x41)
-        time.sleep(0.25)
-        press_ctrl_key(0x43)
-        time.sleep(0.45)
+        mouse.right_click(coords=(tbl_x, tbl_y))
+        time.sleep(0.6)
 
-        txt = get_clipboard_text()
-        if not txt.strip():
-            return result
+        if click_1c_popup_item(win_1c, "Вывести список...", timeout=2.5) or click_1c_popup_item(win_1c, "Вывести список", timeout=1.0):
+            time.sleep(0.6)
+            press_vk(win32con.VK_RETURN)
+            time.sleep(1.3)
 
-        area_col_idx = None
-        for line in txt.splitlines():
-            cols = [c.strip() for c in line.split("\t")]
-            low_cols = [c.lower() for c in cols]
-            if any("площад" in c for c in low_cols):
-                for ci, c in enumerate(low_cols):
-                    if "площад" in c:
-                        area_col_idx = ci
-                        break
-                continue
-            if cols and cols[0].isdigit():
-                row_num = int(cols[0])
-                if area_col_idx is not None and area_col_idx < len(cols):
-                    val = parse_number(cols[area_col_idx])
-                    if val > 0:
-                        result["areas"][row_num] = val
-                elif len(cols) >= 4 and looks_like_number(cols[3]):
-                    val = parse_number(cols[3])
-                    if val > 0:
-                        result["areas"][row_num] = val
+            clear_clipboard()
+            time.sleep(0.15)
+            mouse.click(coords=(win_rect.left + int(win_rect.width() * 0.45), win_rect.top + int(win_rect.height() * 0.45)))
+            time.sleep(0.25)
+            press_ctrl_key(0x41)
+            time.sleep(0.35)
+            press_ctrl_key(0x43)
+            time.sleep(0.6)
+
+            txt = get_clipboard_text()
+            if txt.strip():
+                result["areas"] = parse_areas_from_tsv(txt)
+
+            press_ctrl_f4()
+            time.sleep(0.5)
 
         if result["areas"]:
-            log_cb(f"Подтянули «Площадь» из документа 1С ({len(result['areas'])} поз.).")
+            log_cb(f"Подтянули «Площадь» из 1С ({len(result['areas'])} поз.).")
     except Exception:
         pass
     return result
@@ -871,7 +893,6 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
             f"1С открыла не тот счёт: в печатной форме № {m_inv.group(1)}, а нужен № {num_clean}."
         )
 
-    # Если печатная форма уже была открыта — заглядываем в соседнюю вкладку документа за Площадью и ИГК
     if use_open_form and not extras["areas"]:
         if switch_to_open_invoice_tab(win_1c, invoice_number):
             extras = grab_doc_extras_from_open_invoice(win_1c, log_cb)
@@ -1124,14 +1145,12 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
         wb = excel.Workbooks.Open(new_file)
         ws = wb.Sheets(1)
 
-        # 1. Обновляем "Приложение № ..." в строках 1-3
         for r in range(1, 4):
             for c in range(1, 17):
                 val = ws.Cells(r, c).Value
                 if isinstance(val, str) and "приложение" in val.lower():
                     ws.Cells(r, c).Value = re.sub(r"(Приложение\s*№\s*)\d+", rf"\g<1>{new_spec_num}", val, flags=re.IGNORECASE)
 
-        # 2. Обновляем "Спецификация № ... от <дата счёта> г."
         spec_title_updated = False
         for r in range(2, 7):
             for c in range(1, 5):
@@ -1145,7 +1164,6 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
         if not spec_title_updated:
             ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
 
-        # 3. Заголовок таблицы и порядок столбцов D / E
         header_row = 8
         for r in range(5, 13):
             if "наименование" in str(ws.Cells(r, 2).Value or "").lower():
@@ -1157,7 +1175,6 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
         e_hdr = str(ws.Cells(header_row, 5).Value or "").lower()
         unit_col, term_col = (4, 5) if ("ед" in d_hdr and "срок" in e_hdr) else (5, 4)
 
-        # 4. Находим строку "Итого" по столбцам A..G
         total_row = start_row
         while total_row < 150:
             if "итого" in " ".join(str(ws.Cells(total_row, c).Value or "") for c in range(1, 8)).lower():
@@ -1173,7 +1190,6 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
             for _ in range(existing_rows - needed_rows):
                 ws.Rows(start_row + needed_rows).Delete()
 
-        # 5. Заполняем позиции (A-O)
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
             ws.Cells(r, 1).Value = idx
@@ -1190,7 +1206,6 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
 
-        # 6. Итоги, ставка НДС, суммы прописью, ИГК и год в подписях
         new_total_row = start_row + needed_rows
         for r in range(new_total_row, new_total_row + 22):
             ag_low = " ".join(str(ws.Cells(r, c).Value or "") for c in range(1, 8)).lower()
@@ -1215,7 +1230,6 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
                         ws.Cells(r, c).Value = re.sub(r"\(\d{1,2}%\)", f"({vat_rate}%)", v)
                 ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["nds"], True)
 
-            # Обновляем ИГК (если найден в 1С) и год в подписях (например, 2025 г. -> 2026 г.)
             for c in range(1, 16):
                 v = ws.Cells(r, c).Value
                 if not isinstance(v, str):
