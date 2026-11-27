@@ -179,20 +179,6 @@ def press_ctrl_key(vk_code: int):
     win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
-def press_shift_f10():
-    win32api.keybd_event(win32con.VK_SHIFT, 0, 0, 0)
-    time.sleep(0.05)
-    win32api.keybd_event(win32con.VK_F10, 0, 0, 0)
-    time.sleep(0.05)
-    win32api.keybd_event(win32con.VK_F10, 0, win32con.KEYEVENTF_KEYUP, 0)
-    time.sleep(0.05)
-    win32api.keybd_event(win32con.VK_SHIFT, 0, win32con.KEYEVENTF_KEYUP, 0)
-
-
-def press_ctrl_f4():
-    press_ctrl_key(win32con.VK_F4)
-
-
 def press_vk(vk_code: int):
     win32api.keybd_event(vk_code, 0, 0, 0)
     time.sleep(0.05)
@@ -212,6 +198,20 @@ def get_clipboard_text() -> str:
         except Exception:
             time.sleep(0.15)
     return ""
+
+
+def set_clipboard_text(text: str):
+    for _ in range(5):
+        try:
+            win32clipboard.OpenClipboard()
+            try:
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, text)
+                return
+            finally:
+                win32clipboard.CloseClipboard()
+        except Exception:
+            time.sleep(0.15)
 
 
 def clear_clipboard():
@@ -315,6 +315,10 @@ def format_1c_invoice_search(invoice_num: str) -> str:
     return f"0000-{s.zfill(6)}" if re.fullmatch(r"\d{1,6}", s) else s
 
 
+def strip_1c_tags(s: str) -> str:
+    return re.sub(r"<[^>]+>", "", s or "").strip()
+
+
 def parse_number(val) -> float:
     if isinstance(val, (int, float)):
         return float(val)
@@ -361,10 +365,6 @@ def amount_in_words(amount: float) -> str:
 
 
 def split_board_and_ps(raw_name: str):
-    """
-    Сохраняет название строго как в счёте 1С (включая «Печ.платы», «Плата печатная» и т.д.),
-    вырезая только 'psXXXXXX' в отдельный столбец «Зав. № заказа».
-    """
     s = raw_name.strip()
     m = re.search(r"\bps\s*(\d+)\b", s, flags=re.IGNORECASE)
     if not m:
@@ -406,7 +406,7 @@ def find_latest_spec(spec_folder: str):
 
 
 # =============================================================================
-# РАБОТА С 1С (ПОИСК, СНЯТИЕ ПЛОЩАДИ + ИГК, ПЕЧАТЬ «СЧЁТ В ФОРМАТЕ 7.7»)
+# РАБОТА С 1С (ПРЯМОЕ ЧТЕНИЕ ПЛОЩАДИ ИЗ ТАБЛИЦЫ UIA + ИГК + ПЕЧАТЬ 7.7)
 # =============================================================================
 def find_1c_window():
     for w in Desktop(backend="uia").windows():
@@ -441,7 +441,7 @@ def has_exact_invoice_doc_open(win_1c, invoice_number: str) -> bool:
     try:
         win_rect = win_1c.rectangle()
         for el in win_1c.descendants():
-            txt = get_el_text_all(el).lower()
+            txt = strip_1c_tags(get_el_text_all(el)).lower()
             if not txt:
                 continue
             r = el.rectangle()
@@ -490,7 +490,6 @@ def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, e
 
 
 def click_1c_popup_item(win_1c, text_query: str, timeout: float = 2.5, partial: bool = False) -> bool:
-    """Ищет пункт меню/кнопку диалога и во всплывающих окнах 1С, и внутри самого win_1c."""
     deadline = time.time() + timeout
     needle = text_query.lower().replace("ё", "е")
     pid_1c = win_1c.process_id()
@@ -502,7 +501,7 @@ def click_1c_popup_item(win_1c, text_query: str, timeout: float = 2.5, partial: 
                 windows_to_scan.append(win_1c)
             for w in windows_to_scan:
                 for el in w.descendants():
-                    txt = get_el_text_all(el).strip().lower().replace("ё", "е")
+                    txt = strip_1c_tags(get_el_text_all(el)).lower().replace("ё", "е")
                     if not txt:
                         continue
                     if (needle in txt) if partial else (txt == needle):
@@ -534,62 +533,68 @@ def switch_to_open_invoice_tab(win_1c, invoice_number: str) -> bool:
     return False
 
 
-def parse_areas_from_tsv(txt: str):
+def read_visible_areas_from_uia(win_1c, table_top_y: int):
     """
-    Возвращает (areas_by_idx, areas_by_ps).
-    Работает даже если в «Вывести список...» нет колонки N или есть пустые табы в начале.
+    Читает видимые строки таблицы «Товары и услуги» напрямую через UIA:
+    группирует ячейки по горизонтальной полосе (top) и извлекает N, psXXXXXX и Площадь.
     """
-    areas_by_idx, areas_by_ps = {}, {}
-    area_col_idx = None
-    num_col_idx = None
-    seq_idx = 0
+    by_idx, by_ps = {}, {}
+    cells = []
+    try:
+        for el in win_1c.descendants():
+            r = el.rectangle()
+            if r.top < table_top_y or r.width() < 10 or r.height() < 10 or r.height() > 60:
+                continue
+            raw_t = strip_1c_tags(get_el_text_all(el))
+            if not raw_t:
+                continue
+            cells.append((r.top, r.left, raw_t))
+    except Exception:
+        return by_idx, by_ps
 
-    for line in txt.splitlines():
-        cols = [c.strip() for c in line.split("\t")]
-        if not any(cols):
-            continue
-        low_cols = [c.lower() for c in cols]
-        joined_low = " ".join(low_cols)
+    cells.sort(key=lambda x: (x[0], x[1]))
+    rows = []
+    for top, left, txt in cells:
+        if rows and abs(rows[-1][0] - top) <= 12:
+            rows[-1][1].append((left, txt))
+        else:
+            rows.append([top, [(left, txt)]])
 
-        if any("площад" in c for c in low_cols):
-            for ci, c in enumerate(low_cols):
-                if "площад" in c:
-                    area_col_idx = ci
-                elif c in ("n", "№", "№ п/п", "номер"):
-                    num_col_idx = ci
-            continue
+    for _, row_cells in rows:
+        area_val = 0.0
+        row_num = None
+        ps_num = ""
+        for _, txt in row_cells:
+            low = txt.lower()
+            if "площад" in low:
+                m_num = re.search(r"(\d+(?:[.,]\d+)?)", txt)
+                if m_num:
+                    v = parse_number(m_num.group(1))
+                    if v > 0:
+                        area_val = v
+            if not ps_num:
+                m_ps = re.search(r"\bps\s*(\d+)\b", txt, flags=re.IGNORECASE)
+                if m_ps:
+                    ps_num = m_ps.group(1)
+            if row_num is None:
+                m_n = re.fullmatch(r"(\d{1,3})(?:\s*(?:n|№|номер))?", low)
+                if m_n:
+                    row_num = int(m_n.group(1))
 
-        if area_col_idx is None or area_col_idx >= len(cols):
-            continue
-        if "итого" in joined_low or "всего" in joined_low:
-            continue
+        if area_val > 0:
+            if ps_num:
+                by_ps[ps_num] = area_val
+            if row_num is not None:
+                by_idx[row_num] = area_val
 
-        area_str = cols[area_col_idx]
-        if not area_str:
-            continue
-        val = parse_number(area_str)
-        if val <= 0:
-            continue
-
-        seq_idx += 1
-        row_num = seq_idx
-        if num_col_idx is not None and num_col_idx < len(cols) and cols[num_col_idx].isdigit():
-            row_num = int(cols[num_col_idx])
-
-        areas_by_idx[row_num] = val
-
-        m_ps = re.search(r"\bps\s*(\d+)\b", joined_low, flags=re.IGNORECASE)
-        if m_ps:
-            areas_by_ps[m_ps.group(1)] = val
-
-    return areas_by_idx, areas_by_ps
+    return by_idx, by_ps
 
 
 def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
     """
     Забирает из открытого документа «Счет покупателю» в 1С:
       - ИГК (20-25 цифр)
-      - колонку «Площадь» (по индексу и по номеру ps) через ПКМ / Shift+F10 -> «Вывести список...» -> ОК -> Ctrl+A/C -> Ctrl+F4
+      - колонку «Площадь» напрямую из ячеек таблицы UIA (с прокруткой PageDown для длинных счетов)
     """
     result = {"areas_by_idx": {}, "areas_by_ps": {}, "igk": ""}
     try:
@@ -597,7 +602,7 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
         add_btn_bottom = None
 
         for el in win_1c.descendants():
-            txt = get_el_text_all(el)
+            txt = strip_1c_tags(get_el_text_all(el))
             if not txt:
                 continue
             r = el.rectangle()
@@ -618,53 +623,35 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
             log_cb("Таблица «Товары и услуги» не найдена — пропускаем снятие площади.")
             return result
 
-        log_cb("Снимаем колонку «Площадь» из таблицы документа 1С...")
+        log_cb("Читаем колонку «Площадь» напрямую из таблицы документа 1С...")
+        table_top_y = add_btn_bottom + 20
+
+        # Кликаем в первую строку таблицы, чтобы работала прокрутка PageDown
         tbl_x = win_rect.left + int(win_rect.width() * 0.25)
         tbl_y = add_btn_bottom + 54
         mouse.click(coords=(tbl_x, tbl_y))
-        time.sleep(0.3)
-        mouse.right_click(coords=(tbl_x, tbl_y))
-        time.sleep(0.6)
+        time.sleep(0.25)
 
-        opened_list_cmd = click_1c_popup_item(win_1c, "вывести список", timeout=2.5, partial=True)
-        if not opened_list_cmd:
-            press_shift_f10()
-            time.sleep(0.6)
-            opened_list_cmd = click_1c_popup_item(win_1c, "вывести список", timeout=2.0, partial=True)
+        for step in range(4):
+            by_idx, by_ps = read_visible_areas_from_uia(win_1c, table_top_y)
+            before_cnt = max(len(result["areas_by_idx"]), len(result["areas_by_ps"]))
+            result["areas_by_idx"].update(by_idx)
+            result["areas_by_ps"].update(by_ps)
+            after_cnt = max(len(result["areas_by_idx"]), len(result["areas_by_ps"]))
 
-        if opened_list_cmd:
-            time.sleep(0.7)
-            if not (click_1c_popup_item(win_1c, "ок", timeout=1.5) or click_1c_popup_item(win_1c, "ok", timeout=0.6)):
-                press_vk(win32con.VK_RETURN)
-            time.sleep(1.5)
+            if step > 0 and after_cnt == before_cnt:
+                break
+            if after_cnt == 0:
+                break
 
-            clear_clipboard()
-            time.sleep(0.15)
-            mouse.click(coords=(win_rect.left + int(win_rect.width() * 0.45), win_rect.top + int(win_rect.height() * 0.45)))
-            time.sleep(0.3)
-            press_ctrl_key(0x41)
+            press_vk(win32con.VK_NEXT)  # PageDown
             time.sleep(0.4)
-            press_ctrl_key(0x43)
-            time.sleep(0.7)
-
-            txt = get_clipboard_text()
-            if txt.strip():
-                by_idx, by_ps = parse_areas_from_tsv(txt)
-                result["areas_by_idx"] = by_idx
-                result["areas_by_ps"] = by_ps
-
-            press_ctrl_f4()
-            time.sleep(0.5)
-        else:
-            press_vk(win32con.VK_ESCAPE)
-            time.sleep(0.2)
-            log_cb("Пункт «Вывести список...» в контекстном меню 1С не найден.")
 
         cnt = max(len(result["areas_by_idx"]), len(result["areas_by_ps"]))
         if cnt:
             log_cb(f"Подтянули «Площадь» из 1С ({cnt} поз.).")
         else:
-            log_cb("Колонка «Площадь» не распознана — оставим пустой.")
+            log_cb("Колонка «Площадь» не найдена в UIA — оставим пустой.")
     except Exception as e:
         log_cb(f"Не удалось снять «Площадь» из 1С: {e}")
     return result
@@ -737,7 +724,7 @@ def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_
     pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
     try:
         for el in win_1c.descendants():
-            txt = get_el_text_all(el)
+            txt = strip_1c_tags(get_el_text_all(el))
             if not txt:
                 continue
             r = el.rectangle()
@@ -1314,7 +1301,7 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
 
 
 # =============================================================================
-# ПРИЛОЖЕНИЕ (КОМПАКТНОЕ ОКНО, ЗАКРЕПЛЁННЫЕ КНОПКИ ВНИЗУ, ЯРКАЯ КНОПКА 1С)
+# ПРИЛОЖЕНИЕ (КОМПАКТНОЕ ОКНО + КНОПКА КОПИРОВАНИЯ ЛОГА)
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
@@ -1532,13 +1519,25 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.open_form_btn.pack(fill="x", padx=14, pady=(0, 12))
 
-        # Карточка 3
+        # Карточка 3 + кнопка «📋 Копировать лог»
         self.card3 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card3.pack(fill="both", expand=True, pady=(0, 4))
-        self.c3_title = ctk.CTkLabel(self.card3, text="3. ХОД ВЫПОЛНЕНИЯ", font=ctk.CTkFont(size=12, weight="bold"))
-        self.c3_title.pack(anchor="w", padx=14, pady=(10, 4))
+
+        log_hdr = ctk.CTkFrame(self.card3, fg_color="transparent")
+        log_hdr.pack(fill="x", padx=14, pady=(10, 4))
+        self.c3_title = ctk.CTkLabel(log_hdr, text="3. ХОД ВЫПОЛНЕНИЯ", font=ctk.CTkFont(size=12, weight="bold"))
+        self.c3_title.pack(side="left")
+
+        self.copy_log_btn = ctk.CTkButton(
+            log_hdr, text="📋 Копировать лог", width=135, height=26, corner_radius=6,
+            border_width=1, font=ctk.CTkFont(size=11, weight="bold"), command=self._copy_log_to_clipboard,
+        )
+        self.copy_log_btn.pack(side="right")
+
         self.log_box = ctk.CTkTextbox(self.card3, height=95, border_width=1, font=ctk.CTkFont(family="Consolas", size=12))
         self.log_box.pack(fill="both", expand=True, padx=14, pady=(0, 12))
+        self.log_box.bind("<Control-c>", lambda e: self._copy_log_selection_or_all())
+        self.log_box.bind("<Key>", lambda e: "break" if not (e.state & 0x4 and e.keysym.lower() in ("c", "a")) else None)
         self._append_log("Готово. Выберите фирму справа — папка в «РАСЧЕТЫ» подберётся автоматически.")
 
         # Нижние закреплённые кнопки
@@ -1578,6 +1577,24 @@ class SpecBuilderApp(ctk.CTk):
 
         self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    def _copy_log_to_clipboard(self):
+        text = self.log_box.get("1.0", "end").strip()
+        if text:
+            set_clipboard_text(text)
+            self.copy_log_btn.configure(text="✅ Скопировано!")
+            self.after(1500, lambda: self.copy_log_btn.configure(text="📋 Копировать лог"))
+
+    def _copy_log_selection_or_all(self):
+        try:
+            sel = self.log_box.get("sel.first", "sel.last")
+            if sel:
+                set_clipboard_text(sel)
+                return "break"
+        except Exception:
+            pass
+        self._copy_log_to_clipboard()
+        return "break"
 
     def _set_calc_picker_visible(self, visible: bool):
         self.calc_picker_open = visible
@@ -1655,6 +1672,9 @@ class SpecBuilderApp(ctk.CTk):
         self.c1_title.configure(text_color=t["title_accent1"])
         self.c2_title.configure(text_color=t["title_accent2"])
         self.c3_title.configure(text_color=t["title_accent3"])
+        self.copy_log_btn.configure(
+            fg_color=t["badge_bg"], hover_color=t["hover"], border_color=t["border"], text_color=t["text_main"]
+        )
         self.selected_firm_lbl.configure(text_color=t["text_main"])
         self.last_file_lbl.configure(text_color=t["text_muted"])
         self._update_calc_bar_style()
@@ -1677,10 +1697,8 @@ class SpecBuilderApp(ctk.CTk):
 
     def _append_log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_box.configure(state="normal")
         self.log_box.insert("end", f"[{ts}] {msg}\n")
         self.log_box.see("end")
-        self.log_box.configure(state="disabled")
 
     def _set_status(self, msg: str, color: str = None):
         c = color or self.t["accent"]
