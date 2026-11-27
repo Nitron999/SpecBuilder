@@ -37,7 +37,6 @@ CFG = {
 
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SpecBuilder")
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
-PREFIX_OPTIONS = ["(без префикса)", "Плата печатная", "Печ.платы", "Печатная плата"]
 
 
 # =============================================================================
@@ -126,7 +125,7 @@ def load_user_settings() -> dict:
                     return data
     except Exception:
         pass
-    return {"theme": "Тёмная ночь", "folder_mapping": dict(CFG["folder_mapping"]), "prefix_mapping": {}}
+    return {"theme": "Тёмная ночь", "folder_mapping": dict(CFG["folder_mapping"])}
 
 
 def save_user_settings(data: dict):
@@ -362,72 +361,19 @@ def amount_in_words(amount: float) -> str:
 
 
 def split_board_and_ps(raw_name: str):
+    """
+    Сохраняет название строго как в счёте 1С (включая «Печ.платы», «Плата печатная» и т.д.),
+    вырезая только 'psXXXXXX' в отдельный столбец «Зав. № заказа».
+    """
     s = raw_name.strip()
-    m = re.search(r"\bps\s*(\d+)\s+(.+)$", s, flags=re.IGNORECASE)
-    if m:
-        return m.group(2).strip(), m.group(1).strip()
-    m2 = re.search(r"\bps\s*(\d+)\b(.*)$", s, flags=re.IGNORECASE)
-    if m2:
-        rest = m2.group(2).strip(" -–—")
-        return (rest if rest else s), m2.group(1).strip()
-    return s, ""
-
-
-def apply_name_prefix(board_name: str, prefix: str) -> str:
-    clean = re.sub(
-        r"^(?:плата\s+печатная|печатная\s+плата|печ\.?\s*платы|печ\.?\s*плата)\s+",
-        "",
-        board_name.strip(),
-        flags=re.IGNORECASE,
-    ).strip()
-    p = (prefix or "").strip()
-    if not p or p == "(без префикса)":
-        return clean
-    return f"{p} {clean}"
-
-
-def detect_name_prefix_from_spec(spec_path: str) -> str:
-    """Автоматически определяет префикс наименования платы из прошлой спецификации фирмы."""
-    known = ["Плата печатная", "Печатная плата", "Печ.платы"]
-    counts = {p: 0 for p in known}
-    total_rows = 0
-    try:
-        rows = []
-        if spec_path.lower().endswith(".xls"):
-            wb = xlrd.open_workbook(spec_path)
-            sh = wb.sheet_by_index(0)
-            for r in range(min(sh.nrows, 30)):
-                rows.append([sh.cell_value(r, c) for c in range(min(sh.ncols, 4))])
-        else:
-            wb = openpyxl.load_workbook(spec_path, data_only=True)
-            ws = wb.active
-            for r in range(1, min(ws.max_row + 1, 31)):
-                rows.append([ws.cell(r, c).value for c in range(1, min(ws.max_column + 1, 5))])
-
-        start_r = 0
-        for idx, row in enumerate(rows):
-            if len(row) > 1 and "наименование" in str(row[1] or "").lower():
-                start_r = idx + 1
-                break
-        for row in rows[start_r:]:
-            if not row or "итого" in " ".join(str(x or "") for x in row).lower():
-                break
-            if re.fullmatch(r"\d+(?:\.0+)?", str(row[0] or "").strip()) and len(row) > 1:
-                val = str(row[1] or "").strip()
-                if not val:
-                    continue
-                total_rows += 1
-                low = val.lower()
-                for p in known:
-                    if low.startswith(p.lower()):
-                        counts[p] += 1
-                        break
-    except Exception:
-        return "(без префикса)"
-    if total_rows == 0:
-        return "(без префикса)"
-    best_p, best_cnt = max(counts.items(), key=lambda kv: kv[1])
-    return best_p if best_cnt > 0 and best_cnt >= total_rows / 2 else "(без префикса)"
+    m = re.search(r"\bps\s*(\d+)\b", s, flags=re.IGNORECASE)
+    if not m:
+        return s, ""
+    ps_num = m.group(1).strip()
+    before = s[:m.start()].strip()
+    after = s[m.end():].strip(" -–—")
+    combined = " ".join(part for part in (before, after) if part).strip()
+    return combined, ps_num
 
 
 def find_latest_spec(spec_folder: str):
@@ -544,15 +490,21 @@ def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, e
 
 
 def click_1c_popup_item(win_1c, text_query: str, timeout: float = 2.5, partial: bool = False) -> bool:
+    """Ищет пункт меню/кнопку диалога и во всплывающих окнах 1С, и внутри самого win_1c."""
     deadline = time.time() + timeout
     needle = text_query.lower().replace("ё", "е")
     pid_1c = win_1c.process_id()
     desktop = Desktop(backend="uia")
     while time.time() < deadline:
         try:
-            for w in desktop.windows(process=pid_1c):
+            windows_to_scan = list(desktop.windows(process=pid_1c))
+            if win_1c not in windows_to_scan:
+                windows_to_scan.append(win_1c)
+            for w in windows_to_scan:
                 for el in w.descendants():
-                    txt = (el.window_text() or "").strip().lower().replace("ё", "е")
+                    txt = get_el_text_all(el).strip().lower().replace("ё", "е")
+                    if not txt:
+                        continue
                     if (needle in txt) if partial else (txt == needle):
                         rect = el.rectangle()
                         if rect.width() > 5 and rect.height() > 5:
@@ -582,16 +534,23 @@ def switch_to_open_invoice_tab(win_1c, invoice_number: str) -> bool:
     return False
 
 
-def parse_areas_from_tsv(txt: str) -> dict:
-    """Надёжно парсит колонку «Площадь» из выведенного списка 1С (учитывая пустые ведущие табы)."""
-    areas = {}
+def parse_areas_from_tsv(txt: str):
+    """
+    Возвращает (areas_by_idx, areas_by_ps).
+    Работает даже если в «Вывести список...» нет колонки N или есть пустые табы в начале.
+    """
+    areas_by_idx, areas_by_ps = {}, {}
     area_col_idx = None
-    num_col_idx = 0
+    num_col_idx = None
+    seq_idx = 0
+
     for line in txt.splitlines():
         cols = [c.strip() for c in line.split("\t")]
         if not any(cols):
             continue
         low_cols = [c.lower() for c in cols]
+        joined_low = " ".join(low_cols)
+
         if any("площад" in c for c in low_cols):
             for ci, c in enumerate(low_cols):
                 if "площад" in c:
@@ -599,29 +558,40 @@ def parse_areas_from_tsv(txt: str) -> dict:
                 elif c in ("n", "№", "№ п/п", "номер"):
                     num_col_idx = ci
             continue
-        if area_col_idx is not None and area_col_idx < len(cols):
-            row_num = None
-            if num_col_idx < len(cols) and cols[num_col_idx].isdigit():
-                row_num = int(cols[num_col_idx])
-            else:
-                for c in cols[:3]:
-                    if c.isdigit():
-                        row_num = int(c)
-                        break
-            if row_num is not None:
-                val = parse_number(cols[area_col_idx])
-                if val > 0:
-                    areas[row_num] = val
-    return areas
+
+        if area_col_idx is None or area_col_idx >= len(cols):
+            continue
+        if "итого" in joined_low or "всего" in joined_low:
+            continue
+
+        area_str = cols[area_col_idx]
+        if not area_str:
+            continue
+        val = parse_number(area_str)
+        if val <= 0:
+            continue
+
+        seq_idx += 1
+        row_num = seq_idx
+        if num_col_idx is not None and num_col_idx < len(cols) and cols[num_col_idx].isdigit():
+            row_num = int(cols[num_col_idx])
+
+        areas_by_idx[row_num] = val
+
+        m_ps = re.search(r"\bps\s*(\d+)\b", joined_low, flags=re.IGNORECASE)
+        if m_ps:
+            areas_by_ps[m_ps.group(1)] = val
+
+    return areas_by_idx, areas_by_ps
 
 
 def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
     """
     Забирает из открытого документа «Счет покупателю» в 1С:
       - ИГК (20-25 цифр)
-      - колонку «Площадь» через ПКМ / Shift+F10 по таблице -> «Вывести список...» -> ОК -> Ctrl+A/C -> Ctrl+F4
+      - колонку «Площадь» (по индексу и по номеру ps) через ПКМ / Shift+F10 -> «Вывести список...» -> ОК -> Ctrl+A/C -> Ctrl+F4
     """
-    result = {"areas": {}, "igk": ""}
+    result = {"areas_by_idx": {}, "areas_by_ps": {}, "igk": ""}
     try:
         win_rect = win_1c.rectangle()
         add_btn_bottom = None
@@ -664,7 +634,7 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
 
         if opened_list_cmd:
             time.sleep(0.7)
-            if not click_1c_popup_item(win_1c, "ок", timeout=1.5, partial=False):
+            if not (click_1c_popup_item(win_1c, "ок", timeout=1.5) or click_1c_popup_item(win_1c, "ok", timeout=0.6)):
                 press_vk(win32con.VK_RETURN)
             time.sleep(1.5)
 
@@ -679,7 +649,9 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
 
             txt = get_clipboard_text()
             if txt.strip():
-                result["areas"] = parse_areas_from_tsv(txt)
+                by_idx, by_ps = parse_areas_from_tsv(txt)
+                result["areas_by_idx"] = by_idx
+                result["areas_by_ps"] = by_ps
 
             press_ctrl_f4()
             time.sleep(0.5)
@@ -688,10 +660,11 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
             time.sleep(0.2)
             log_cb("Пункт «Вывести список...» в контекстном меню 1С не найден.")
 
-        if result["areas"]:
-            log_cb(f"Подтянули «Площадь» из 1С ({len(result['areas'])} поз.).")
+        cnt = max(len(result["areas_by_idx"]), len(result["areas_by_ps"]))
+        if cnt:
+            log_cb(f"Подтянули «Площадь» из 1С ({cnt} поз.).")
         else:
-            log_cb("Колонка «Площадь» не распознана — оставим пустой для ручной проверки.")
+            log_cb("Колонка «Площадь» не распознана — оставим пустой.")
     except Exception as e:
         log_cb(f"Не удалось снять «Площадь» из 1С: {e}")
     return result
@@ -900,7 +873,7 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
     log_cb("Ищем окно 1С:Предприятие...")
     win_1c = find_1c_window()
     just_launched = False
-    extras = {"areas": {}, "igk": ""}
+    extras = {"areas_by_idx": {}, "areas_by_ps": {}, "igk": ""}
 
     if win_1c is None:
         if use_open_form:
@@ -983,9 +956,11 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
             f"1С открыла не тот счёт: в печатной форме № {m_inv.group(1)}, а нужен № {num_clean}."
         )
 
-    if use_open_form and not extras["areas"]:
+    if use_open_form and not extras["areas_by_idx"]:
         if switch_to_open_invoice_tab(win_1c, invoice_number):
             extras = grab_doc_extras_from_open_invoice(win_1c, log_cb)
+        else:
+            log_cb("Вкладка документа «Счет покупателю» не открыта — площадь не снята.")
 
     return raw_text, extras
 
@@ -1070,7 +1045,7 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
 # ПОИСК БЛАНКА И НИЖНЕЙ СТРОКИ В «РАСЧЕТЫ»
 # =============================================================================
 def extract_board_tokens(board_name: str) -> list:
-    stop_words = {"печ.платы", "печатные", "платы", "плата", "ps", "пп", "шт"}
+    stop_words = {"печ.платы", "печатные", "платы", "плата", "печатная", "ps", "пп", "шт"}
     return [
         t.strip().lower() for t in re.split(r"[\s()\[\],;]+", board_name)
         if len(t.strip()) >= 3 and t.strip().lower() not in stop_words
@@ -1190,8 +1165,7 @@ def find_calc_bottom_row(calc_folder: str, board_name: str, raw_name: str = "", 
 # СБОРКА EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ
 # =============================================================================
 def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invoice_num: str,
-                        new_spec_num: int, name_prefix: str, use_open_form: bool,
-                        from_clipboard_only: bool, log_cb) -> str:
+                        new_spec_num: int, use_open_form: bool, from_clipboard_only: bool, log_cb) -> str:
     spec_folder = os.path.join(cfg["specs_root"], client_name)
     calc_folder = (
         os.path.join(cfg["calc_root"], calc_folder_name)
@@ -1204,7 +1178,7 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
     new_file = os.path.join(spec_folder, f"сп.{new_spec_num} сч.{invoice_num}{ext}")
     shutil.copy2(last_file, new_file)
 
-    extras = {"areas": {}, "igk": ""}
+    extras = {"areas_by_idx": {}, "areas_by_ps": {}, "igk": ""}
     if from_clipboard_only:
         log_cb("Читаем таблицу из буфера обмена...")
         raw_text = get_clipboard_text()
@@ -1219,7 +1193,8 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
     if not items:
         raise RuntimeError("Не удалось распознать товары в скопированном тексте 1С.")
 
-    areas_map = extras.get("areas", {})
+    areas_by_idx = extras.get("areas_by_idx", {})
+    areas_by_ps = extras.get("areas_by_ps", {})
     final_igk = extras.get("igk") or inv.get("igk", "")
     inv_year = inv["year"]
     vat_rate = inv["vat_rate"]
@@ -1284,14 +1259,16 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
             ws.Cells(r, 1).Value = idx
-            ws.Cells(r, 2).Value = apply_name_prefix(item["name"], name_prefix)
+            ws.Cells(r, 2).Value = item["name"]
             ws.Cells(r, 3).Value = item["ps_num"]
             ws.Cells(r, term_col).Value = item["term"]
             ws.Cells(r, unit_col).Value = item["unit"]
             ws.Cells(r, 6).Value = item["qty"]
             ws.Cells(r, 7).Value = item["price"]
             ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
-            ws.Cells(r, 9).Value = areas_map.get(idx, "")
+
+            area_val = areas_by_ps.get(item["ps_num"], areas_by_idx.get(idx, ""))
+            ws.Cells(r, 9).Value = area_val
 
             tech = find_calc_bottom_row(calc_folder, item["name"], item["raw_name"], invoice_num=invoice_num, item_idx=idx)
             for offset, val in enumerate(tech):
@@ -1337,7 +1314,7 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
 
 
 # =============================================================================
-# ПРИЛОЖЕНИЕ (ВЫБОР ПРЕФИКСА НАИМЕНОВАНИЯ + АВТООПРЕДЕЛЕНИЕ ПО ФИРМЕ)
+# ПРИЛОЖЕНИЕ (КОМПАКТНОЕ ОКНО, ЗАКРЕПЛЁННЫЕ КНОПКИ ВНИЗУ, ЯРКАЯ КНОПКА 1С)
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
@@ -1347,7 +1324,6 @@ class SpecBuilderApp(ctk.CTk):
         if self.current_theme_name not in THEMES:
             self.current_theme_name = "Тёмная ночь"
         self.folder_mapping = self.user_settings.get("folder_mapping", dict(CFG["folder_mapping"]))
-        self.prefix_mapping = self.user_settings.get("prefix_mapping", {})
         self.t = THEMES[self.current_theme_name]
 
         ctk.set_appearance_mode(self.t["mode"])
@@ -1526,7 +1502,7 @@ class SpecBuilderApp(ctk.CTk):
         self.calc_scroll = ctk.CTkScrollableFrame(self.calc_picker_frame, height=105, corner_radius=8, border_width=1)
         self.calc_scroll.pack(fill="x", padx=14, pady=(0, 12))
 
-        # Карточка 2: 3 колонки (Новый № | Префикс наименования | Номер счёта в 1С)
+        # Карточка 2
         self.card2 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card2.pack(fill="x", pady=(0, 10))
         self.c2_title = ctk.CTkLabel(self.card2, text="2. ПАРАМЕТРЫ СПЕЦИФИКАЦИИ И СЧЁТА 1С", font=ctk.CTkFont(size=12, weight="bold"))
@@ -1535,29 +1511,19 @@ class SpecBuilderApp(ctk.CTk):
         grid2 = ctk.CTkFrame(self.card2, fg_color="transparent")
         grid2.pack(fill="x", padx=14, pady=(0, 10))
         grid2.grid_columnconfigure(0, weight=1)
-        grid2.grid_columnconfigure(1, weight=2)
-        grid2.grid_columnconfigure(2, weight=1)
+        grid2.grid_columnconfigure(1, weight=1)
 
         self.lbl_spec_num = ctk.CTkLabel(grid2, text="Новый № спецификации:", font=ctk.CTkFont(size=12))
-        self.lbl_spec_num.grid(row=0, column=0, sticky="w", padx=(0, 6), pady=(0, 4))
+        self.lbl_spec_num.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
         self.spec_num_var = ctk.StringVar()
         self.spec_entry = ctk.CTkEntry(grid2, textvariable=self.spec_num_var, height=36, font=ctk.CTkFont(size=14, weight="bold"))
-        self.spec_entry.grid(row=1, column=0, sticky="ew", padx=(0, 6))
+        self.spec_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
 
-        self.lbl_prefix = ctk.CTkLabel(grid2, text="Префикс в «Наименование платы»:", font=ctk.CTkFont(size=12))
-        self.lbl_prefix.grid(row=0, column=1, sticky="w", padx=6, pady=(0, 4))
-        self.prefix_var = ctk.StringVar(value="(без префикса)")
-        self.prefix_combo = ctk.CTkComboBox(
-            grid2, values=PREFIX_OPTIONS, variable=self.prefix_var, height=36,
-            font=ctk.CTkFont(size=13, weight="bold"), command=self._on_prefix_selected,
-        )
-        self.prefix_combo.grid(row=1, column=1, sticky="ew", padx=6)
-
-        self.lbl_inv_num = ctk.CTkLabel(grid2, text="Номер счёта в 1С:", font=ctk.CTkFont(size=12))
-        self.lbl_inv_num.grid(row=0, column=2, sticky="w", padx=(6, 0), pady=(0, 4))
+        self.lbl_inv_num = ctk.CTkLabel(grid2, text="Номер счёта в 1С (дата и названия — из счёта):", font=ctk.CTkFont(size=12))
+        self.lbl_inv_num.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
         self.inv_var = ctk.StringVar()
         self.inv_entry = ctk.CTkEntry(grid2, textvariable=self.inv_var, placeholder_text="320", height=36, font=ctk.CTkFont(size=14, weight="bold"))
-        self.inv_entry.grid(row=1, column=2, sticky="ew", padx=(6, 0))
+        self.inv_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
         self.open_form_btn = ctk.CTkButton(
             self.card2, height=44, corner_radius=10, border_width=2,
@@ -1573,7 +1539,7 @@ class SpecBuilderApp(ctk.CTk):
         self.c3_title.pack(anchor="w", padx=14, pady=(10, 4))
         self.log_box = ctk.CTkTextbox(self.card3, height=95, border_width=1, font=ctk.CTkFont(family="Consolas", size=12))
         self.log_box.pack(fill="both", expand=True, padx=14, pady=(0, 12))
-        self._append_log("Готово. Выберите фирму справа — папка в «РАСЧЕТЫ» и префикс подтянутся автоматически.")
+        self._append_log("Готово. Выберите фирму справа — папка в «РАСЧЕТЫ» подберётся автоматически.")
 
         # Нижние закреплённые кнопки
         btn_row = ctk.CTkFrame(self.center_container, fg_color="transparent")
@@ -1612,12 +1578,6 @@ class SpecBuilderApp(ctk.CTk):
 
         self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-
-    def _on_prefix_selected(self, choice: str):
-        if self.selected_client:
-            self.prefix_mapping[self.selected_client] = choice.strip()
-            self.user_settings["prefix_mapping"] = self.prefix_mapping
-            save_user_settings(self.user_settings)
 
     def _set_calc_picker_visible(self, visible: bool):
         self.calc_picker_open = visible
@@ -1667,7 +1627,6 @@ class SpecBuilderApp(ctk.CTk):
         if save:
             self.user_settings["theme"] = theme_name
             self.user_settings["folder_mapping"] = self.folder_mapping
-            self.user_settings["prefix_mapping"] = self.prefix_mapping
             save_user_settings(self.user_settings)
 
         self.configure(fg_color=t["bg_app"])
@@ -1704,14 +1663,8 @@ class SpecBuilderApp(ctk.CTk):
         )
         for ent in (self.calc_search_entry, self.spec_entry, self.inv_entry, self.search_entry):
             ent.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
-        self.prefix_combo.configure(
-            fg_color=t["bg_input"], border_color=t["border"], button_color=t["badge_bg"],
-            button_hover_color=t["hover"], text_color=t["text_main"],
-            dropdown_fg_color=t["bg_card"], dropdown_hover_color=t["hover"], dropdown_text_color=t["text_main"],
-        )
         self.calc_scroll.configure(fg_color=t["bg_input"], border_color=t["border"])
         self.lbl_spec_num.configure(text_color=t["text_muted"])
-        self.lbl_prefix.configure(text_color=t["text_muted"])
         self.lbl_inv_num.configure(text_color=t["text_muted"])
         self._update_open_form_btn_style()
         self.log_box.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
@@ -1819,18 +1772,13 @@ class SpecBuilderApp(ctk.CTk):
                 font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
             )
         spec_folder = os.path.join(CFG["specs_root"], client_name)
-        detected_prefix = "(без префикса)"
         try:
             last_num, last_file = find_latest_spec(spec_folder)
             self.spec_num_var.set(str(last_num + 1))
             self.last_file_lbl.configure(text=f"Последний файл: {os.path.basename(last_file)}", text_color=t["text_muted"])
-            detected_prefix = detect_name_prefix_from_spec(last_file)
         except Exception as e:
             self.spec_num_var.set("1")
             self.last_file_lbl.configure(text=f"Внимание: {e}", text_color="#ef4444")
-
-        saved_prefix = self.prefix_mapping.get(client_name)
-        self.prefix_var.set(saved_prefix if saved_prefix is not None else detected_prefix)
 
         guessed = guess_calc_folder(client_name, self.all_calc_folders, self.folder_mapping)
         self.selected_calc_folder = guessed
@@ -1870,11 +1818,6 @@ class SpecBuilderApp(ctk.CTk):
             messagebox.showwarning("Внимание", "Номер спецификации должен быть числом.")
             return
 
-        name_prefix = self.prefix_var.get().strip()
-        self.prefix_mapping[self.selected_client] = name_prefix
-        self.user_settings["prefix_mapping"] = self.prefix_mapping
-        save_user_settings(self.user_settings)
-
         calc_folder_name = self.selected_calc_folder
         use_open = self.use_open_form
         self.build_btn.configure(state="disabled", text="ВЫПОЛНЯЕТСЯ СБОРКА...")
@@ -1886,7 +1829,7 @@ class SpecBuilderApp(ctk.CTk):
             try:
                 res = build_specification(
                     CFG, self.selected_client, calc_folder_name, inv_num, new_spec_num,
-                    name_prefix, use_open, from_clipboard_only,
+                    use_open, from_clipboard_only,
                     lambda m: self._set_status(m, self.t["title_accent1"]),
                 )
                 self._set_status("Готово! Спецификация открыта в Excel.", self.t["accent"])
