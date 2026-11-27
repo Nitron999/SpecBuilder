@@ -40,6 +40,12 @@ CFG = {
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SpecBuilder")
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 
+MONTH_NAMES_RU = [
+    "01 — Янв", "02 — Фев", "03 — Мар", "04 — Апр",
+    "05 — Май", "06 — Июн", "07 — Июл", "08 — Авг",
+    "09 — Сен", "10 — Окт", "11 — Ноя", "12 — Дек",
+]
+
 
 # =============================================================================
 # 7 ТЕМ ОФОРМЛЕНИЯ
@@ -231,7 +237,6 @@ class INPUT(ctypes.Structure):
 
 
 def type_unicode_text(text: str):
-    """Вводит любой текст через SendInput напрямую — без буфера обмена и раскладки."""
     INPUT_KEYBOARD = 1
     KEYEVENTF_UNICODE = 0x0004
     KEYEVENTF_KEYUP = 0x0002
@@ -389,6 +394,13 @@ def clean_invoice_number(raw: str) -> str:
     return s
 
 
+def format_1c_invoice_search(invoice_num: str) -> str:
+    s = str(invoice_num).strip()
+    if re.fullmatch(r"\d{1,6}", s):
+        return f"0000-{s.zfill(6)}"
+    return s
+
+
 def parse_number(val) -> float:
     if isinstance(val, (int, float)):
         return float(val)
@@ -485,7 +497,7 @@ def find_latest_spec(spec_folder: str):
 
 
 # =============================================================================
-# РАБОТА С 1С (РАЗВЁРНУТОЕ ОКНО + ПРОВЕРКА ОТКРЫТИЯ «ПЕЧАТЬ ДОКУМЕНТА»)
+# РАБОТА С 1С
 # =============================================================================
 def find_1c_window():
     desktop = Desktop(backend="uia")
@@ -514,26 +526,39 @@ def get_el_text_all(el) -> str:
     return " ".join(parts).strip()
 
 
-def has_open_invoice_doc(win_1c, invoice_number: str = "") -> bool:
-    num_clean = str(invoice_number).strip().lstrip("0")
+def has_exact_invoice_doc_open(win_1c, invoice_number: str) -> bool:
+    num_clean = str(invoice_number).strip().lstrip("0") or "0"
+    full_num = format_1c_invoice_search(invoice_number).lower()
+    num_pat = re.compile(rf"(?:^|[-0]){re.escape(num_clean)}(?:\b|\s|от)")
+
+    has_doc_toolbar = False
+    has_matching_header = False
+
     try:
+        win_rect = win_1c.rectangle()
         for el in win_1c.descendants():
-            txt = (el.window_text() or "").strip().lower()
-            if txt in ("провести и закрыть", "записать"):
-                r = el.rectangle()
-                if r.width() > 20 and r.height() > 10:
-                    return True
-            if num_clean and "счет покупателю" in txt and num_clean in txt:
-                r = el.rectangle()
-                if r.width() > 20 and r.height() > 10:
-                    return True
+            txt = get_el_text_all(el).lower()
+            if not txt:
+                continue
+            r = el.rectangle()
+            if r.width() < 15 or r.height() < 10:
+                continue
+
+            if txt == "провести и закрыть":
+                has_doc_toolbar = True
+
+            if r.top > win_rect.top + 48 and r.top < win_rect.top + 220:
+                if "счет покупателю" in txt and num_pat.search(txt):
+                    has_matching_header = True
+                elif txt == full_num:
+                    has_matching_header = True
     except Exception:
         pass
-    return False
+
+    return has_doc_toolbar and has_matching_header
 
 
 def has_open_print_form(win_1c) -> bool:
-    """Проверяет, открылась ли вкладка «Печать документа» в 1С."""
     try:
         for el in win_1c.descendants():
             txt = (el.window_text() or "").strip().lower()
@@ -565,8 +590,7 @@ def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, e
     return False
 
 
-def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 3.0) -> bool:
-    """Ищет пункт меню ТОЛЬКО в окнах процесса 1С (быстро, без перебора всех программ Windows)."""
+def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 2.5) -> bool:
     deadline = time.time() + timeout
     needle = exact_text.lower().replace("ё", "е")
     pid_1c = win_1c.process_id()
@@ -588,7 +612,7 @@ def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 3.0) -> bool:
     return False
 
 
-def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
+def focus_list_search_box_and_filter(win_1c, search_query: str, log_cb):
     win_rect = win_1c.rectangle()
     toolbar_top = None
     toolbar_bottom = None
@@ -628,23 +652,23 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
         pass
 
     if search_edit is not None:
-        log_cb(f"Кликаем в поле поиска справа и вводим «{invoice_number}»...")
+        log_cb(f"Вводим «{search_query}» в поле поиска справа...")
         search_edit.click_input()
         time.sleep(0.3)
         press_ctrl_key(0x41)
         time.sleep(0.1)
         press_vk(win32con.VK_BACK)
         time.sleep(0.15)
-        type_unicode_text(str(invoice_number))
+        type_unicode_text(search_query)
         time.sleep(0.35)
         press_vk(win32con.VK_RETURN)
         time.sleep(2.2)
         return toolbar_bottom, False
 
-    log_cb(f"Вводим «{invoice_number}» через Ctrl+F...")
+    log_cb(f"Вводим «{search_query}» через Ctrl+F...")
     press_ctrl_key(0x46)
     time.sleep(0.9)
-    type_unicode_text(str(invoice_number))
+    type_unicode_text(search_query)
     time.sleep(0.35)
     press_vk(win32con.VK_RETURN)
     time.sleep(2.2)
@@ -652,42 +676,11 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
 
 
 def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_ctrl_f: bool, log_cb) -> bool:
-    if has_open_invoice_doc(win_1c, invoice_number):
+    if has_exact_invoice_doc_open(win_1c, invoice_number):
         return True
-
-    if used_ctrl_f:
-        log_cb("Открываем найденную строку клавишей Enter...")
-        press_vk(win32con.VK_RETURN)
-        time.sleep(2.0)
-        if has_open_invoice_doc(win_1c, invoice_number):
-            return True
-
-    log_cb("Переходим в таблицу списка (↓ → Enter)...")
-    press_vk(win32con.VK_DOWN)
-    time.sleep(0.4)
-    press_vk(win32con.VK_RETURN)
-    time.sleep(2.0)
-    if has_open_invoice_doc(win_1c, invoice_number):
-        return True
-
-    win_rect = win_1c.rectangle()
-    try:
-        for ct in ("Table", "DataGrid"):
-            for tbl in win_1c.descendants(control_type=ct):
-                r = tbl.rectangle()
-                if r.width() > 300 and r.height() > 120 and r.top > win_rect.top + 80:
-                    abs_x = r.left + min(180, r.width() // 4)
-                    for offset_y in (42, 58, 30):
-                        abs_y = r.top + offset_y
-                        log_cb(f"Открываем 1-ю строку таблицы (y={abs_y})...")
-                        mouse.double_click(coords=(abs_x, abs_y))
-                        time.sleep(1.8)
-                        if has_open_invoice_doc(win_1c, invoice_number):
-                            return True
-    except Exception:
-        pass
 
     num_str = str(invoice_number).strip().lstrip("0") or "0"
+    win_rect = win_1c.rectangle()
     pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
     try:
         for el in win_1c.descendants():
@@ -697,14 +690,45 @@ def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_
             r = el.rectangle()
             if r.top < win_rect.top + 120 or r.width() < 20 or r.height() < 10:
                 continue
-            if r.left > win_rect.left + win_rect.width() * 0.6:
+            if r.left > win_rect.left + win_rect.width() * 0.55:
                 continue
             if pattern.search(txt):
-                log_cb(f"Найдена строка счёта «{txt}» — открываем...")
+                log_cb(f"Найдена строка «{txt}» — открываем...")
                 el.double_click_input()
-                time.sleep(1.8)
-                if has_open_invoice_doc(win_1c, invoice_number):
+                time.sleep(2.0)
+                if has_exact_invoice_doc_open(win_1c, invoice_number):
                     return True
+    except Exception:
+        pass
+
+    if used_ctrl_f:
+        log_cb("Открываем найденную строку (Enter)...")
+        press_vk(win32con.VK_RETURN)
+        time.sleep(2.0)
+        if has_exact_invoice_doc_open(win_1c, invoice_number):
+            return True
+
+    log_cb("Переходим в таблицу списка (↓ → Enter)...")
+    press_vk(win32con.VK_DOWN)
+    time.sleep(0.4)
+    press_vk(win32con.VK_RETURN)
+    time.sleep(2.0)
+    if has_exact_invoice_doc_open(win_1c, invoice_number):
+        return True
+
+    try:
+        for ct in ("Table", "DataGrid"):
+            for tbl in win_1c.descendants(control_type=ct):
+                r = tbl.rectangle()
+                if r.width() > 300 and r.height() > 120 and r.top > win_rect.top + 80:
+                    abs_x = r.left + min(180, r.width() // 4)
+                    for offset_y in (42, 58, 30):
+                        abs_y = r.top + offset_y
+                        log_cb(f"Кликаем в 1-ю строку таблицы (y={abs_y})...")
+                        mouse.double_click(coords=(abs_x, abs_y))
+                        time.sleep(2.0)
+                        if has_exact_invoice_doc_open(win_1c, invoice_number):
+                            return True
     except Exception:
         pass
 
@@ -714,48 +738,93 @@ def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_
         abs_y = base_y + dy
         log_cb(f"Пробуем открыть строку (y={abs_y})...")
         mouse.double_click(coords=(abs_x, abs_y))
-        time.sleep(1.8)
-        if has_open_invoice_doc(win_1c, invoice_number):
+        time.sleep(2.0)
+        if has_exact_invoice_doc_open(win_1c, invoice_number):
             return True
 
     return False
 
 
-def click_document_print_77(win_1c, log_cb):
+def find_document_print_button(win_1c):
     win_rect = win_1c.rectangle()
-    print_btn = None
+    doc_toolbar_y = None
 
-    best_top = 999999
+    try:
+        for el in win_1c.descendants():
+            if (el.window_text() or "").strip().lower() == "провести и закрыть":
+                r = el.rectangle()
+                if r.width() > 20 and r.height() > 10:
+                    doc_toolbar_y = r.top
+                    break
+    except Exception:
+        pass
+
+    best_btn = None
+    best_dist = 999999
     try:
         for el in win_1c.descendants():
             txt = (el.window_text() or "").strip().lower()
             if txt == "печать" or txt.startswith("печать "):
                 r = el.rectangle()
                 if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 50:
-                    if r.top < best_top:
-                        best_top = r.top
-                        print_btn = el
+                    dist = abs(r.top - doc_toolbar_y) if doc_toolbar_y is not None else r.top
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_btn = el
     except Exception:
         pass
 
+    return best_btn
+
+
+def click_document_print_77(win_1c, log_cb):
+    print_btn = find_document_print_button(win_1c)
     if print_btn is None:
         raise RuntimeError("Не найдена кнопка «Печать» в открытом счёте.")
+
+    btn_rect = print_btn.rectangle()
+    btn_h = max(24, btn_rect.height())
 
     log_cb("Нажимаем «Печать» → «Счёт в формате 7.7»...")
     print_btn.click_input()
     time.sleep(0.8)
 
-    if not click_1c_popup_item(win_1c, "Счёт в формате 7.7", timeout=2.5):
-        for _ in range(3):
+    if click_1c_popup_item(win_1c, "Счёт в формате 7.7", timeout=2.5):
+        for _ in range(12):
+            time.sleep(0.5)
+            if has_open_print_form(win_1c):
+                time.sleep(0.7)
+                return
+
+    if not has_open_print_form(win_1c):
+        log_cb("Выбираем 4-й пункт меню («Счёт в формате 7.7»)...")
+        item_x = btn_rect.left + 65
+        item_y = btn_rect.bottom + int(btn_h * 3.85)
+        mouse.click(coords=(item_x, item_y))
+        for _ in range(10):
+            time.sleep(0.5)
+            if has_open_print_form(win_1c):
+                time.sleep(0.7)
+                return
+
+    if not has_open_print_form(win_1c):
+        log_cb("Повторно открываем «Печать» и выбираем «Счёт в формате 7.7» стрелками...")
+        print_btn.click_input()
+        time.sleep(0.7)
+        for _ in range(4):
             press_vk(win32con.VK_DOWN)
             time.sleep(0.15)
         press_vk(win32con.VK_RETURN)
+        for _ in range(12):
+            time.sleep(0.5)
+            if has_open_print_form(win_1c):
+                time.sleep(0.7)
+                return
 
-    for _ in range(14):
-        time.sleep(0.5)
-        if has_open_print_form(win_1c):
-            time.sleep(0.8)
-            return
+    raise RuntimeError(
+        "Не удалось открыть печатную форму «Счёт в формате 7.7».\n"
+        "Попробуй открыть её в 1С вручную и включить кнопку «Печатная форма уже открыта»."
+    )
 
 
 def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: bool, log_cb) -> str:
@@ -797,7 +866,7 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
     time.sleep(0.7)
 
     if not use_open_form:
-        if not has_open_invoice_doc(win_1c, invoice_number):
+        if not has_exact_invoice_doc_open(win_1c, invoice_number):
             log_cb("Переходим в «Счета покупателям»...")
             if not click_1c_element_by_name(win_1c, "Счета покупателям", timeout=2.5, exact_only=True):
                 if click_1c_element_by_name(win_1c, "Продажи", timeout=8.0, exact_only=True):
@@ -805,11 +874,12 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
                     click_1c_element_by_name(win_1c, "Счета покупателям", timeout=6.0)
             time.sleep(1.5)
 
-            toolbar_bottom, used_ctrl_f = focus_list_search_box_and_filter(win_1c, invoice_number, log_cb)
+            full_search = format_1c_invoice_search(invoice_number)
+            toolbar_bottom, used_ctrl_f = focus_list_search_box_and_filter(win_1c, full_search, log_cb)
 
             if not open_filtered_invoice_row(win_1c, invoice_number, toolbar_bottom, used_ctrl_f, log_cb):
                 raise RuntimeError(
-                    f"В списке «Счета покупателям» не удалось открыть строку со счётом № {invoice_number}.\n"
+                    f"В списке «Счета покупателям» не удалось открыть счёт {full_search}.\n"
                     "Проверь номер счёта и период отбора в 1С."
                 )
             time.sleep(1.0)
@@ -831,9 +901,9 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
         except Exception:
             pass
 
-        press_ctrl_key(0x41)  # Ctrl+A
+        press_ctrl_key(0x41)
         time.sleep(0.5)
-        press_ctrl_key(0x43)  # Ctrl+C
+        press_ctrl_key(0x43)
         time.sleep(0.9)
 
         raw_text = get_clipboard_text()
@@ -933,7 +1003,7 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
 
 
 # =============================================================================
-# ПОИСК БЛАНКА И НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ" (ВКЛЮЧАЯ ВП -> сч 0319_2026)
+# ПОИСК БЛАНКА И НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ"
 # =============================================================================
 def extract_board_tokens(board_name: str) -> list:
     stop_words = {"печ.платы", "печатные", "платы", "плата", "ps", "пп", "шт"}
@@ -1098,6 +1168,7 @@ def build_specification(
     calc_folder_name: str,
     invoice_num: str,
     new_spec_num: int,
+    spec_date_str: str,
     use_open_form: bool,
     from_clipboard_only: bool,
     log_cb,
@@ -1134,11 +1205,13 @@ def build_specification(
             "Убедись, что открыта печатная форма «Счёт в формате 7.7»."
         )
 
+    final_date = spec_date_str.strip() if spec_date_str.strip() else inv["date"]
+
     inv_calc_dir = find_invoice_calc_folder(calc_folder, invoice_num)
     if inv_calc_dir:
         log_cb(f"Найдена папка счёта в РАСЧЕТЫ: {os.path.basename(inv_calc_dir)}")
 
-    log_cb(f"Найдено позиций: {len(items)}. Заполняем Excel и подтягиваем РАСЧЕТЫ...")
+    log_cb(f"Найдено позиций: {len(items)}. Заполняем Excel (дата: {final_date})...")
     pythoncom.CoInitialize()
     try:
         excel = win32com.client.Dispatch("Excel.Application")
@@ -1162,13 +1235,13 @@ def build_specification(
             for c in range(1, 5):
                 val = ws.Cells(r, c).Value
                 if isinstance(val, str) and "спецификация" in val.lower():
-                    ws.Cells(r, c).Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
+                    ws.Cells(r, c).Value = f"Спецификация № {new_spec_num} от {final_date} г."
                     spec_title_updated = True
                     break
             if spec_title_updated:
                 break
         if not spec_title_updated:
-            ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
+            ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {final_date} г."
 
         header_row = 8
         for r in range(5, 13):
@@ -1241,7 +1314,7 @@ def build_specification(
 
 
 # =============================================================================
-# ПРИЛОЖЕНИЕ С 7 ТЕМАМИ И АВТОПОДБОРОМ ПАПКИ «РАСЧЕТЫ» ПО ТРАНСЛИТУ
+# ПРИЛОЖЕНИЕ С 7 ТЕМАМИ, ВЫБОРОМ ДАТЫ И КОМПАКТНОЙ КАРТОЧКОЙ «РАСЧЕТЫ»
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
@@ -1257,13 +1330,15 @@ class SpecBuilderApp(ctk.CTk):
         ctk.set_default_color_theme("green")
 
         self.title(f'{CFG["company_name"]} — Сборка спецификаций')
-        self.geometry("1220x740")
-        self.minsize(1020, 650)
+        self.geometry("1240x750")
+        self.minsize(1040, 650)
 
         self.all_clients = []
         self.all_calc_folders = []
         self.selected_client = None
         self.selected_calc_folder = "(не выбрана)"
+        self.calc_picker_open = False
+        self.use_open_form = False
         self.client_buttons = {}
         self.calc_buttons = {}
 
@@ -1271,7 +1346,8 @@ class SpecBuilderApp(ctk.CTk):
         self._build_layout()
         self._apply_theme(self.current_theme_name, save=False)
         self._render_client_list("")
-        self._render_calc_list("")
+        self._set_calc_picker_visible(False)
+        self._update_open_form_btn_style()
 
     def _load_folders(self):
         try:
@@ -1297,6 +1373,7 @@ class SpecBuilderApp(ctk.CTk):
         self.grid_columnconfigure(2, weight=0)
         self.grid_rowconfigure(1, weight=1)
 
+        # === ВЕРХНЯЯ ШАПКА ===
         self.header = ctk.CTkFrame(self, height=64, corner_radius=0, border_width=1)
         self.header.grid(row=0, column=0, columnspan=3, sticky="ew")
         self.header.grid_columnconfigure(1, weight=1)
@@ -1355,6 +1432,7 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.user_lbl.pack(side="left", padx=(0, 14), pady=7)
 
+        # === ЛЕВАЯ ПАНЕЛЬ НАВИГАЦИИ ===
         self.left_nav = ctk.CTkFrame(self, width=185, corner_radius=0, border_width=1)
         self.left_nav.grid(row=1, column=0, sticky="ns")
         self.left_nav.grid_propagate(False)
@@ -1413,9 +1491,11 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.status_badge.pack(side="bottom", anchor="w", padx=14, pady=16)
 
+        # === ЦЕНТРАЛЬНАЯ РАБОЧАЯ ОБЛАСТЬ ===
         self.center = ctk.CTkScrollableFrame(self, corner_radius=0)
         self.center.grid(row=1, column=1, sticky="nsew", padx=14, pady=12)
 
+        # --- Карточка 1: Фирма и компактная плашка папки в РАСЧЕТЫ ---
         self.card1 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card1.pack(fill="x", pady=(0, 12))
 
@@ -1425,44 +1505,66 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.c1_title.pack(anchor="w", padx=16, pady=(14, 6))
 
+        firm_row = ctk.CTkFrame(self.card1, fg_color="transparent")
+        firm_row.pack(fill="x", padx=16, pady=(0, 10))
         self.selected_firm_lbl = ctk.CTkLabel(
-            self.card1, text="Выберите фирму в списке справа →",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            firm_row, text="Выберите фирму в списке справа →",
+            font=ctk.CTkFont(size=17, weight="bold"),
         )
-        self.selected_firm_lbl.pack(anchor="w", padx=16, pady=(0, 2))
+        self.selected_firm_lbl.pack(side="left")
 
         self.last_file_lbl = ctk.CTkLabel(
-            self.card1, text="Последний файл: —",
+            firm_row, text="Последний файл: —",
             font=ctk.CTkFont(size=12),
         )
-        self.last_file_lbl.pack(anchor="w", padx=16, pady=(0, 10))
+        self.last_file_lbl.pack(side="right")
 
-        calc_top = ctk.CTkFrame(self.card1, fg_color="transparent")
-        calc_top.pack(fill="x", padx=16, pady=(0, 4))
+        # Компактная плашка выбранной папки РАСЧЕТЫ + кнопка «Изменить папку»
+        self.calc_bar = ctk.CTkFrame(self.card1, corner_radius=10, border_width=1)
+        self.calc_bar.pack(fill="x", padx=16, pady=(0, 14))
+
+        self.calc_bar_left = ctk.CTkFrame(self.calc_bar, fg_color="transparent")
+        self.calc_bar_left.pack(side="left", fill="x", expand=True, padx=12, pady=8)
+
         self.calc_title_lbl = ctk.CTkLabel(
-            calc_top, text="Папка фирмы в «РАСЧЕТЫ» (выбрано: ", font=ctk.CTkFont(size=12),
+            self.calc_bar_left, text="Папка в «РАСЧЕТЫ»:", font=ctk.CTkFont(size=11),
         )
-        self.calc_title_lbl.pack(side="left")
+        self.calc_title_lbl.pack(anchor="w")
+
         self.calc_selected_lbl = ctk.CTkLabel(
-            calc_top, text="(не выбрана)", font=ctk.CTkFont(size=12, weight="bold"),
+            self.calc_bar_left, text="(не выбрана)", font=ctk.CTkFont(size=14, weight="bold"),
         )
-        self.calc_selected_lbl.pack(side="left")
-        self.calc_close_lbl = ctk.CTkLabel(calc_top, text=")", font=ctk.CTkFont(size=12))
-        self.calc_close_lbl.pack(side="left")
+        self.calc_selected_lbl.pack(anchor="w")
+
+        self.calc_toggle_btn = ctk.CTkButton(
+            self.calc_bar,
+            text="🔍 Изменить папку",
+            width=155,
+            height=34,
+            corner_radius=8,
+            border_width=1,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._toggle_calc_picker,
+        )
+        self.calc_toggle_btn.pack(side="right", padx=10, pady=8)
+
+        # Раскрывающийся блок поиска (скрыт, если папка подобралась автоматически)
+        self.calc_picker_frame = ctk.CTkFrame(self.card1, fg_color="transparent")
 
         self.calc_search_var = ctk.StringVar()
         self.calc_search_var.trace_add("write", lambda *_: self._render_calc_list(self.calc_search_var.get()))
         self.calc_search_entry = ctk.CTkEntry(
-            self.card1,
+            self.calc_picker_frame,
             textvariable=self.calc_search_var,
-            placeholder_text="🔍 Поиск папки фирмы в «РАСЧЕТЫ» (можно по-русски или латиницей)...",
+            placeholder_text="🔍 Введите название папки в «РАСЧЕТЫ» (по-русски или латиницей)...",
             height=34,
         )
         self.calc_search_entry.pack(fill="x", padx=16, pady=(0, 6))
 
-        self.calc_scroll = ctk.CTkScrollableFrame(self.card1, height=110, corner_radius=8, border_width=1)
+        self.calc_scroll = ctk.CTkScrollableFrame(self.calc_picker_frame, height=120, corner_radius=8, border_width=1)
         self.calc_scroll.pack(fill="x", padx=16, pady=(0, 14))
 
+        # --- Карточка 2: 3 колонки (Новый № | Дата Д/М/Г | Номер счёта 1С) + большая кнопка ---
         self.card2 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card2.pack(fill="x", pady=(0, 12))
 
@@ -1473,14 +1575,14 @@ class SpecBuilderApp(ctk.CTk):
         self.c2_title.pack(anchor="w", padx=16, pady=(14, 10))
 
         grid2 = ctk.CTkFrame(self.card2, fg_color="transparent")
-        grid2.pack(fill="x", padx=16, pady=(0, 12))
+        grid2.pack(fill="x", padx=16, pady=(0, 14))
         grid2.grid_columnconfigure(0, weight=1)
-        grid2.grid_columnconfigure(1, weight=1)
+        grid2.grid_columnconfigure(1, weight=2)
+        grid2.grid_columnconfigure(2, weight=1)
 
+        # Колонка 1: Новый № спецификации
         self.lbl_spec_num = ctk.CTkLabel(grid2, text="Новый № спецификации:", font=ctk.CTkFont(size=12))
         self.lbl_spec_num.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
-        self.lbl_inv_num = ctk.CTkLabel(grid2, text="Номер счёта в 1С (например, 319):", font=ctk.CTkFont(size=12))
-        self.lbl_inv_num.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
 
         self.spec_num_var = ctk.StringVar()
         self.spec_entry = ctk.CTkEntry(
@@ -1488,21 +1590,64 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.spec_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
 
+        # Колонка 2: Дата спецификации (День / Месяц / Год)
+        self.lbl_spec_date = ctk.CTkLabel(grid2, text="Дата спецификации (День / Месяц / Год):", font=ctk.CTkFont(size=12))
+        self.lbl_spec_date.grid(row=0, column=1, sticky="w", padx=8, pady=(0, 4))
+
+        now = datetime.now()
+        date_box = ctk.CTkFrame(grid2, fg_color="transparent")
+        date_box.grid(row=1, column=1, sticky="ew", padx=8)
+        date_box.grid_columnconfigure(0, weight=1)
+        date_box.grid_columnconfigure(1, weight=2)
+        date_box.grid_columnconfigure(2, weight=1)
+
+        days = [f"{d:02d}" for d in range(1, 32)]
+        years = [str(y) for y in range(now.year - 1, now.year + 3)]
+
+        self.day_menu = ctk.CTkOptionMenu(
+            date_box, values=days, height=38, corner_radius=8,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.day_menu.set(f"{now.day:02d}")
+        self.day_menu.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        self.month_menu = ctk.CTkOptionMenu(
+            date_box, values=MONTH_NAMES_RU, height=38, corner_radius=8,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.month_menu.set(MONTH_NAMES_RU[now.month - 1])
+        self.month_menu.grid(row=0, column=1, sticky="ew", padx=4)
+
+        self.year_menu = ctk.CTkOptionMenu(
+            date_box, values=years, height=38, corner_radius=8,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.year_menu.set(str(now.year))
+        self.year_menu.grid(row=0, column=2, sticky="ew", padx=(4, 0))
+
+        # Колонка 3: Номер счёта в 1С
+        self.lbl_inv_num = ctk.CTkLabel(grid2, text="Номер счёта в 1С:", font=ctk.CTkFont(size=12))
+        self.lbl_inv_num.grid(row=0, column=2, sticky="w", padx=(8, 0), pady=(0, 4))
+
         self.inv_var = ctk.StringVar()
         self.inv_entry = ctk.CTkEntry(
-            grid2, textvariable=self.inv_var, placeholder_text="319", height=38, font=ctk.CTkFont(size=14, weight="bold")
+            grid2, textvariable=self.inv_var, placeholder_text="412", height=38, font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.inv_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0))
+        self.inv_entry.grid(row=1, column=2, sticky="ew", padx=(8, 0))
 
-        self.use_open_form_var = ctk.BooleanVar(value=False)
-        self.open_form_chk = ctk.CTkCheckBox(
+        # Большая заметная кнопка-переключатель «Печатная форма уже открыта в 1С»
+        self.open_form_btn = ctk.CTkButton(
             self.card2,
-            text="Печатная форма «Счёт в формате 7.7» уже открыта в 1С (забрать сразу)",
-            variable=self.use_open_form_var,
-            font=ctk.CTkFont(size=12),
+            text="☐   Печатная форма «Счёт в формате 7.7» уже открыта в 1С (нажмите, чтобы забрать сразу)",
+            height=46,
+            corner_radius=10,
+            border_width=2,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            command=self._toggle_open_form_mode,
         )
-        self.open_form_chk.pack(anchor="w", padx=16, pady=(0, 14))
+        self.open_form_btn.pack(fill="x", padx=16, pady=(0, 16))
 
+        # --- Карточка 3: Журнал выполнения ---
         self.card3 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card3.pack(fill="both", expand=True, pady=(0, 12))
 
@@ -1544,6 +1689,7 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.clip_btn.grid(row=0, column=1, sticky="ew")
 
+        # === ПРАВАЯ ПАНЕЛЬ: СПРАВОЧНИК ФИРМ ===
         self.right_panel = ctk.CTkFrame(self, width=300, corner_radius=0, border_width=1)
         self.right_panel.grid(row=1, column=2, sticky="ns")
         self.right_panel.grid_propagate(False)
@@ -1568,10 +1714,58 @@ class SpecBuilderApp(ctk.CTk):
         self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 10))
 
+    # =========================================================================
+    # ЛОГИКА ПЕРЕКЛЮЧАТЕЛЕЙ, ДАТЫ И ТЕМ
+    # =========================================================================
+    def _get_selected_date_str(self) -> str:
+        d = self.day_menu.get().strip()
+        m = self.month_menu.get().split("—")[0].strip()
+        y = self.year_menu.get().strip()
+        return f"{d}.{m}.{y}"
+
+    def _set_calc_picker_visible(self, visible: bool):
+        self.calc_picker_open = visible
+        if visible:
+            self.calc_picker_frame.pack(fill="x")
+            self.calc_toggle_btn.configure(text="▲ Свернуть список")
+            self._render_calc_list(self.calc_search_var.get())
+        else:
+            self.calc_picker_frame.pack_forget()
+            self.calc_toggle_btn.configure(text="🔍 Изменить папку")
+
+    def _toggle_calc_picker(self):
+        self._set_calc_picker_visible(not self.calc_picker_open)
+        if self.calc_picker_open:
+            self.calc_search_entry.focus_set()
+
+    def _toggle_open_form_mode(self):
+        self.use_open_form = not self.use_open_form
+        self._update_open_form_btn_style()
+
+    def _update_open_form_btn_style(self):
+        t = self.t
+        if self.use_open_form:
+            self.open_form_btn.configure(
+                text="✅   ПЕЧАТНАЯ ФОРМА «СЧЁТ В ФОРМАТЕ 7.7» УЖЕ ОТКРЫТА В 1С  —  ЗАБЕРЁМ СРАЗУ",
+                fg_color=t["sel_bg"],
+                hover_color=t["sel_bg"],
+                border_color=t["accent"],
+                text_color=t["sel_text"],
+            )
+        else:
+            self.open_form_btn.configure(
+                text="☐   Печатная форма «Счёт в формате 7.7» уже открыта в 1С (нажмите, чтобы забрать сразу)",
+                fg_color=t["bg_input"],
+                hover_color=t["hover"],
+                border_color=t["border"],
+                text_color=t["text_main"],
+            )
+
     def _on_theme_change(self, theme_name: str):
         self._apply_theme(theme_name, save=True)
         self._render_client_list(self.search_var.get())
-        self._render_calc_list(self.calc_search_var.get())
+        if self.calc_picker_open:
+            self._render_calc_list(self.calc_search_var.get())
 
     def _apply_theme(self, theme_name: str, save: bool = True):
         self.current_theme_name = theme_name
@@ -1622,20 +1816,38 @@ class SpecBuilderApp(ctk.CTk):
 
         self.selected_firm_lbl.configure(text_color=t["text_main"])
         self.last_file_lbl.configure(text_color=t["text_muted"])
+
+        is_calc_ok = self.selected_calc_folder and self.selected_calc_folder != "(не выбрана)"
+        self.calc_bar.configure(
+            fg_color=t["sel_bg"] if is_calc_ok else t["bg_input"],
+            border_color=t["accent"] if is_calc_ok else t["border"],
+        )
         self.calc_title_lbl.configure(text_color=t["text_muted"])
-        self.calc_selected_lbl.configure(text_color=t["accent"])
-        self.calc_close_lbl.configure(text_color=t["text_muted"])
+        self.calc_selected_lbl.configure(text_color=t["sel_text"] if is_calc_ok else t["text_muted"])
+        self.calc_toggle_btn.configure(
+            fg_color=t["bg_card"], hover_color=t["hover"], border_color=t["border"], text_color=t["text_main"]
+        )
 
         for ent in (self.calc_search_entry, self.spec_entry, self.inv_entry, self.search_entry):
             ent.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
 
+        for menu in (self.day_menu, self.month_menu, self.year_menu):
+            menu.configure(
+                fg_color=t["bg_input"],
+                button_color=t["badge_bg"],
+                button_hover_color=t["hover"],
+                text_color=t["text_main"],
+                dropdown_fg_color=t["bg_card"],
+                dropdown_hover_color=t["hover"],
+                dropdown_text_color=t["text_main"],
+            )
+
         self.calc_scroll.configure(fg_color=t["bg_input"], border_color=t["border"])
         self.lbl_spec_num.configure(text_color=t["text_muted"])
+        self.lbl_spec_date.configure(text_color=t["text_muted"])
         self.lbl_inv_num.configure(text_color=t["text_muted"])
 
-        self.open_form_chk.configure(
-            text_color=t["text_main"], fg_color=t["accent"], hover_color=t["accent_hover"]
-        )
+        self._update_open_form_btn_style()
         self.log_box.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
 
         self.build_btn.configure(
@@ -1730,23 +1942,28 @@ class SpecBuilderApp(ctk.CTk):
             btn.pack(fill="x", pady=1, padx=2)
             self.calc_buttons[name] = btn
 
+    def _update_calc_bar_style(self):
+        t = self.t
+        is_ok = self.selected_calc_folder and self.selected_calc_folder != "(не выбрана)"
+        self.calc_selected_lbl.configure(
+            text=f"📁  {self.selected_calc_folder}" if is_ok else "(не выбрана — нажмите «Изменить папку»)",
+            text_color=t["sel_text"] if is_ok else t["text_muted"],
+        )
+        self.calc_bar.configure(
+            fg_color=t["sel_bg"] if is_ok else t["bg_input"],
+            border_color=t["accent"] if is_ok else t["border"],
+        )
+
     def _select_calc_folder(self, folder_name: str):
         self.selected_calc_folder = folder_name
-        self.calc_selected_lbl.configure(text=folder_name)
+        self._update_calc_bar_style()
 
         if self.selected_client and folder_name != "(не выбрана)":
             self.folder_mapping[self.selected_client] = folder_name
             self.user_settings["folder_mapping"] = self.folder_mapping
             save_user_settings(self.user_settings)
 
-        t = self.t
-        for name, btn in self.calc_buttons.items():
-            is_sel = name == folder_name
-            btn.configure(
-                fg_color=t["sel_bg"] if is_sel else "transparent",
-                text_color=t["sel_text"] if is_sel else t["text_main"],
-                font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
-            )
+        self._set_calc_picker_visible(False)
 
     def _select_client(self, client_name: str):
         self.selected_client = client_name
@@ -1776,9 +1993,11 @@ class SpecBuilderApp(ctk.CTk):
 
         guessed = guess_calc_folder(client_name, self.all_calc_folders, self.folder_mapping)
         self.selected_calc_folder = guessed
-        self.calc_selected_lbl.configure(text=guessed)
         self.calc_search_var.set("")
-        self._render_calc_list("")
+        self._update_calc_bar_style()
+
+        # Если папка подтянулась сама — список скрыт; если не нашлась — сразу раскрываем поиск
+        self._set_calc_picker_visible(guessed == "(не выбрана)")
 
     def _open_selected_spec_folder(self):
         if not self.selected_client:
@@ -1801,7 +2020,8 @@ class SpecBuilderApp(ctk.CTk):
     def _reload_all_folders(self):
         self._load_folders()
         self._render_client_list(self.search_var.get())
-        self._render_calc_list(self.calc_search_var.get())
+        if self.calc_picker_open:
+            self._render_calc_list(self.calc_search_var.get())
         self._append_log("Списки папок обновлены.")
 
     def _on_start_build(self, from_clipboard_only: bool = False):
@@ -1811,7 +2031,7 @@ class SpecBuilderApp(ctk.CTk):
 
         inv_num = clean_invoice_number(self.inv_var.get())
         if not inv_num:
-            messagebox.showwarning("Внимание", "Введите номер счёта из 1С (например, 319).")
+            messagebox.showwarning("Внимание", "Введите номер счёта из 1С (например, 412).")
             return
 
         try:
@@ -1821,7 +2041,8 @@ class SpecBuilderApp(ctk.CTk):
             return
 
         calc_folder_name = self.selected_calc_folder
-        use_open = self.use_open_form_var.get()
+        spec_date_str = self._get_selected_date_str()
+        use_open = self.use_open_form
         self.build_btn.configure(state="disabled", text="ВЫПОЛНЯЕТСЯ СБОРКА...")
         self.clip_btn.configure(state="disabled")
 
@@ -1836,6 +2057,7 @@ class SpecBuilderApp(ctk.CTk):
                     calc_folder_name,
                     inv_num,
                     new_spec_num,
+                    spec_date_str,
                     use_open,
                     from_clipboard_only,
                     lambda m: self._set_status(m, self.t["title_accent1"]),
