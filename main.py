@@ -440,7 +440,6 @@ def find_latest_spec(spec_folder: str):
 
 
 def bring_excel_to_front(excel, filepath: str):
-    """Гарантированно выводит окно Excel с открытой спецификацией на передний план."""
     shown = False
     try:
         excel.Visible = True
@@ -450,7 +449,7 @@ def bring_excel_to_front(excel, filepath: str):
             pass
         hwnd = int(excel.Hwnd)
         if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            ctypes.windll.user32.ShowWindow(hwnd, 9)
             ctypes.windll.user32.SetForegroundWindow(hwnd)
             shown = True
     except Exception:
@@ -463,7 +462,7 @@ def bring_excel_to_front(excel, filepath: str):
 
 
 # =============================================================================
-# РАБОТА С 1С (ПРЯМОЕ ЧТЕНИЕ ПЛОЩАДИ ИЗ ТАБЛИЦЫ UIA + ИГК + ПЕЧАТЬ 7.7)
+# РАБОТА С 1С
 # =============================================================================
 def find_1c_window():
     for w in Desktop(backend="uia").windows():
@@ -1196,7 +1195,7 @@ def find_calc_bottom_row(calc_folder: str, board_name: str, raw_name: str = "", 
 
 
 # =============================================================================
-# СБОРКА EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ
+# СБОРКА EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ (С ЕДИНЫМИ ГРАНИЦАМИ И АВТОВЫСОТОЙ СТРОК)
 # =============================================================================
 def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invoice_num: str,
                         new_spec_num: int, use_open_form: bool, from_clipboard_only: bool, log_cb) -> str:
@@ -1292,6 +1291,9 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
 
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
+            if r > start_row:
+                ws.Rows(start_row).Copy()
+                ws.Rows(r).PasteSpecial(Paste=-4122)  # xlPasteFormats — единый шрифт и выравнивание
             ws.Cells(r, 1).Value = idx
             ws.Cells(r, 2).Value = item["name"]
             ws.Cells(r, 3).Value = item["ps_num"]
@@ -1307,6 +1309,27 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
             tech = find_calc_bottom_row(calc_folder, item["name"], item["raw_name"], invoice_num=invoice_num, item_idx=idx)
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
+
+        try:
+            excel.CutCopyMode = False
+        except Exception:
+            pass
+
+        # Единая рамка (границы) для всех строк таблицы от 1-й до последней + автовысота с запасом
+        last_data_row = start_row + needed_rows - 1
+        tbl_range = ws.Range(ws.Cells(start_row, 1), ws.Cells(last_data_row, 15))
+        tbl_range.WrapText = True
+        for border_id in (7, 8, 9, 10, 11, 12):
+            b = tbl_range.Borders(border_id)
+            b.LineStyle = 1  # xlContinuous
+            b.Weight = 2     # xlThin
+
+        for r in range(start_row, last_data_row + 1):
+            ws.Rows(r).AutoFit()
+            try:
+                ws.Rows(r).RowHeight = max(float(ws.Rows(r).RowHeight) + 6, 20)
+            except Exception:
+                pass
 
         new_total_row = start_row + needed_rows
         for r in range(new_total_row, new_total_row + 22):
