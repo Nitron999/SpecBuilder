@@ -37,6 +37,7 @@ CFG = {
 
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SpecBuilder")
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
+HISTORY_FILE = os.path.join(SETTINGS_DIR, "history.json")
 
 
 # =============================================================================
@@ -133,6 +134,39 @@ def save_user_settings(data: dict):
         os.makedirs(SETTINGS_DIR, exist_ok=True)
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def load_history() -> list:
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+    except Exception:
+        pass
+    return []
+
+
+def append_history_entry(client: str, spec_num: int, invoice_num: str, filepath: str):
+    now = datetime.now()
+    entry = {
+        "date": now.strftime("%d.%m.%Y"),
+        "time": now.strftime("%H:%M:%S"),
+        "client": client,
+        "spec_num": spec_num,
+        "invoice_num": str(invoice_num),
+        "file": filepath,
+    }
+    hist = load_history()
+    hist.insert(0, entry)
+    hist = hist[:500]
+    try:
+        os.makedirs(SETTINGS_DIR, exist_ok=True)
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(hist, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -405,6 +439,29 @@ def find_latest_spec(spec_folder: str):
     raise FileNotFoundError(f"В папке {spec_folder} нет файлов Excel (.xls / .xlsx).")
 
 
+def bring_excel_to_front(excel, filepath: str):
+    """Гарантированно выводит окно Excel с открытой спецификацией на передний план."""
+    shown = False
+    try:
+        excel.Visible = True
+        try:
+            excel.ActiveWindow.Visible = True
+        except Exception:
+            pass
+        hwnd = int(excel.Hwnd)
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+            shown = True
+    except Exception:
+        pass
+    if not shown:
+        try:
+            os.startfile(filepath)
+        except Exception:
+            pass
+
+
 # =============================================================================
 # РАБОТА С 1С (ПРЯМОЕ ЧТЕНИЕ ПЛОЩАДИ ИЗ ТАБЛИЦЫ UIA + ИГК + ПЕЧАТЬ 7.7)
 # =============================================================================
@@ -534,10 +591,6 @@ def switch_to_open_invoice_tab(win_1c, invoice_number: str) -> bool:
 
 
 def read_visible_areas_from_uia(win_1c, table_top_y: int):
-    """
-    Читает видимые строки таблицы «Товары и услуги» напрямую через UIA:
-    группирует ячейки по горизонтальной полосе (top) и извлекает N, psXXXXXX и Площадь.
-    """
     by_idx, by_ps = {}, {}
     cells = []
     try:
@@ -591,11 +644,6 @@ def read_visible_areas_from_uia(win_1c, table_top_y: int):
 
 
 def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
-    """
-    Забирает из открытого документа «Счет покупателю» в 1С:
-      - ИГК (20-25 цифр)
-      - колонку «Площадь» напрямую из ячеек таблицы UIA (с прокруткой PageDown для длинных счетов)
-    """
     result = {"areas_by_idx": {}, "areas_by_ps": {}, "igk": ""}
     try:
         win_rect = win_1c.rectangle()
@@ -626,7 +674,6 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
         log_cb("Читаем колонку «Площадь» напрямую из таблицы документа 1С...")
         table_top_y = add_btn_bottom + 20
 
-        # Кликаем в первую строку таблицы, чтобы работала прокрутка PageDown
         tbl_x = win_rect.left + int(win_rect.width() * 0.25)
         tbl_y = add_btn_bottom + 54
         mouse.click(coords=(tbl_x, tbl_y))
@@ -644,7 +691,7 @@ def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
             if after_cnt == 0:
                 break
 
-            press_vk(win32con.VK_NEXT)  # PageDown
+            press_vk(win32con.VK_NEXT)
             time.sleep(0.4)
 
         cnt = max(len(result["areas_by_idx"]), len(result["areas_by_ps"]))
@@ -1295,13 +1342,21 @@ def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invo
                     ws.Cells(r, c).Value = re.sub(r"20\d{2}(\s*г\.?)", rf"{inv_year}\1", v)
 
         wb.Save()
+        try:
+            wb.Activate()
+            ws.Activate()
+        except Exception:
+            pass
+        bring_excel_to_front(excel, new_file)
     finally:
         pythoncom.CoUninitialize()
+
+    append_history_entry(client_name, new_spec_num, invoice_num, new_file)
     return new_file
 
 
 # =============================================================================
-# ПРИЛОЖЕНИЕ (КОМПАКТНОЕ ОКНО + КНОПКА КОПИРОВАНИЯ ЛОГА)
+# ПРИЛОЖЕНИЕ (СПЕЦИФИКАЦИЯ + ИСТОРИЯ ПО ДНЯМ + НАДЁЖНОЕ ОТКРЫТИЕ EXCEL)
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
@@ -1328,6 +1383,7 @@ class SpecBuilderApp(ctk.CTk):
         self.selected_calc_folder = "(не выбрана)"
         self.calc_picker_open = False
         self.use_open_form = False
+        self.active_tab = "spec"
         self.client_buttons, self.calc_buttons = {}, {}
 
         self._load_folders()
@@ -1336,6 +1392,7 @@ class SpecBuilderApp(ctk.CTk):
         self._render_client_list("")
         self._set_calc_picker_visible(False)
         self._update_open_form_btn_style()
+        self._switch_tab("spec")
 
     def _load_folders(self):
         try:
@@ -1412,15 +1469,22 @@ class SpecBuilderApp(ctk.CTk):
         self.nav_title.pack(anchor="w", padx=16, pady=(14, 6))
 
         self.nav_active_btn = ctk.CTkButton(
-            self.left_nav, text="📄  Спецификация", anchor="w", height=38, font=ctk.CTkFont(size=13, weight="bold")
+            self.left_nav, text="📄  Спецификация", anchor="w", height=38,
+            font=ctk.CTkFont(size=13, weight="bold"), command=lambda: self._switch_tab("spec"),
         )
         self.nav_active_btn.pack(fill="x", padx=12, pady=3)
+
+        self.nav_history_btn = ctk.CTkButton(
+            self.left_nav, text="🕒  История по дням", anchor="w", height=38,
+            font=ctk.CTkFont(size=13), command=lambda: self._switch_tab("history"),
+        )
+        self.nav_history_btn.pack(fill="x", padx=12, pady=3)
 
         self.nav_spec_btn = ctk.CTkButton(
             self.left_nav, text="📁  Папка Спец.", anchor="w", height=36, fg_color="transparent",
             font=ctk.CTkFont(size=13), command=self._open_selected_spec_folder,
         )
-        self.nav_spec_btn.pack(fill="x", padx=12, pady=3)
+        self.nav_spec_btn.pack(fill="x", padx=12, pady=(10, 3))
 
         self.nav_calc_btn = ctk.CTkButton(
             self.left_nav, text="📊  Папка Расчёты", anchor="w", height=36, fg_color="transparent",
@@ -1440,7 +1504,7 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.status_badge.pack(side="bottom", anchor="w", padx=14, pady=14)
 
-        # === ЦЕНТРАЛЬНАЯ КОЛОНКА ===
+        # === ЦЕНТРАЛЬНАЯ КОЛОНКА: ВКЛАДКА «СПЕЦИФИКАЦИЯ» ===
         self.center_container = ctk.CTkFrame(self, fg_color="transparent")
         self.center_container.grid(row=1, column=1, sticky="nsew", padx=12, pady=10)
         self.center_container.grid_columnconfigure(0, weight=1)
@@ -1560,6 +1624,34 @@ class SpecBuilderApp(ctk.CTk):
         )
         self.clip_btn.grid(row=0, column=1, sticky="ew")
 
+        # === ЦЕНТРАЛЬНАЯ КОЛОНКА: ВКЛАДКА «ИСТОРИЯ ПО ДНЯМ» ===
+        self.history_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.history_container.grid_columnconfigure(0, weight=1)
+        self.history_container.grid_rowconfigure(1, weight=1)
+
+        self.hist_top_card = ctk.CTkFrame(self.history_container, corner_radius=12, border_width=1)
+        self.hist_top_card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        self.hist_title_lbl = ctk.CTkLabel(
+            self.hist_top_card, text="ИСТОРИЯ СБОРКИ СПЕЦИФИКАЦИЙ ПО ДНЯМ",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.hist_title_lbl.pack(side="left", padx=14, pady=12)
+
+        self.hist_day_var = ctk.StringVar(value="Все дни")
+        self.hist_day_menu = ctk.CTkOptionMenu(
+            self.hist_top_card, values=["Все дни"], variable=self.hist_day_var,
+            command=lambda _: self._render_history(), width=170, height=32, corner_radius=8,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.hist_day_menu.pack(side="right", padx=14, pady=10)
+
+        self.hist_count_lbl = ctk.CTkLabel(self.hist_top_card, text="", font=ctk.CTkFont(size=12))
+        self.hist_count_lbl.pack(side="right", padx=(0, 8), pady=12)
+
+        self.hist_scroll = ctk.CTkScrollableFrame(self.history_container, corner_radius=12, border_width=1)
+        self.hist_scroll.grid(row=1, column=0, sticky="nsew")
+
         # === ПРАВАЯ ПАНЕЛЬ ===
         self.right_panel = ctk.CTkFrame(self, width=290, corner_radius=0, border_width=1)
         self.right_panel.grid(row=1, column=2, sticky="ns")
@@ -1577,6 +1669,112 @@ class SpecBuilderApp(ctk.CTk):
 
         self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    def _switch_tab(self, tab_name: str):
+        self.active_tab = tab_name
+        t = self.t
+        if tab_name == "spec":
+            self.history_container.grid_forget()
+            self.center_container.grid(row=1, column=1, sticky="nsew", padx=12, pady=10)
+            self.nav_active_btn.configure(fg_color=t["sel_bg"], text_color=t["sel_text"], font=ctk.CTkFont(size=13, weight="bold"))
+            self.nav_history_btn.configure(fg_color="transparent", text_color=t["text_main"], font=ctk.CTkFont(size=13))
+        else:
+            self.center_container.grid_forget()
+            self.history_container.grid(row=1, column=1, sticky="nsew", padx=12, pady=10)
+            self.nav_history_btn.configure(fg_color=t["sel_bg"], text_color=t["sel_text"], font=ctk.CTkFont(size=13, weight="bold"))
+            self.nav_active_btn.configure(fg_color="transparent", text_color=t["text_main"], font=ctk.CTkFont(size=13))
+            self._refresh_history_days()
+            self._render_history()
+
+    def _refresh_history_days(self):
+        hist = load_history()
+        days = []
+        for item in hist:
+            d = item.get("date", "")
+            if d and d not in days:
+                days.append(d)
+        options = ["Все дни"] + days
+        self.hist_day_menu.configure(values=options)
+        if self.hist_day_var.get() not in options:
+            self.hist_day_var.set("Все дни")
+
+    def _render_history(self):
+        for w in self.hist_scroll.winfo_children():
+            w.destroy()
+
+        t = self.t
+        hist = load_history()
+        sel_day = self.hist_day_var.get()
+        filtered = hist if sel_day == "Все дни" else [h for h in hist if h.get("date") == sel_day]
+        self.hist_count_lbl.configure(text=f"Записей: {len(filtered)}")
+
+        if not filtered:
+            ctk.CTkLabel(
+                self.hist_scroll, text="Пока нет собранных спецификаций за выбранный период.",
+                text_color=t["text_muted"], font=ctk.CTkFont(size=13),
+            ).pack(pady=30)
+            return
+
+        grouped = {}
+        day_order = []
+        for item in filtered:
+            d = item.get("date", "Без даты")
+            if d not in grouped:
+                grouped[d] = []
+                day_order.append(d)
+            grouped[d].append(item)
+
+        for day in day_order:
+            items = grouped[day]
+            ctk.CTkLabel(
+                self.hist_scroll,
+                text=f"📅  {day}   ({len(items)} шт.)",
+                text_color=t["title_accent1"],
+                font=ctk.CTkFont(size=13, weight="bold"),
+            ).pack(anchor="w", padx=10, pady=(10, 4))
+
+            for entry in items:
+                row_card = ctk.CTkFrame(self.hist_scroll, fg_color=t["bg_input"], border_color=t["border"], border_width=1, corner_radius=8)
+                row_card.pack(fill="x", padx=8, pady=3)
+
+                left = ctk.CTkFrame(row_card, fg_color="transparent")
+                left.pack(side="left", fill="x", expand=True, padx=10, pady=7)
+
+                top_txt = f"{entry.get('time', '')}   •   {entry.get('client', '')}   —   сп.{entry.get('spec_num', '')} / сч.{entry.get('invoice_num', '')}"
+                ctk.CTkLabel(left, text=top_txt, text_color=t["text_main"], font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+
+                fpath = entry.get("file", "")
+                ctk.CTkLabel(left, text=os.path.basename(fpath) if fpath else "", text_color=t["text_muted"], font=ctk.CTkFont(size=11)).pack(anchor="w")
+
+                btns = ctk.CTkFrame(row_card, fg_color="transparent")
+                btns.pack(side="right", padx=8, pady=6)
+
+                ctk.CTkButton(
+                    btns, text="📂 Excel", width=78, height=28, corner_radius=6,
+                    fg_color=t["accent"], hover_color=t["accent_hover"], text_color=t["accent_text"],
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                    command=lambda p=fpath: self._open_history_file(p),
+                ).pack(side="left", padx=(0, 5))
+
+                ctk.CTkButton(
+                    btns, text="📁 Папка", width=78, height=28, corner_radius=6, border_width=1,
+                    fg_color=t["bg_card"], hover_color=t["hover"], border_color=t["border"], text_color=t["text_main"],
+                    font=ctk.CTkFont(size=11),
+                    command=lambda p=fpath: self._open_history_folder(p),
+                ).pack(side="left")
+
+    def _open_history_file(self, path: str):
+        if path and os.path.isfile(path):
+            os.startfile(path)
+        else:
+            messagebox.showwarning("Файл не найден", f"Файл не найден:\n{path}")
+
+    def _open_history_folder(self, path: str):
+        folder = os.path.dirname(path) if path else ""
+        if folder and os.path.isdir(folder):
+            os.startfile(folder)
+        else:
+            messagebox.showwarning("Папка не найдена", f"Папка не найдена:\n{folder}")
 
     def _copy_log_to_clipboard(self):
         text = self.log_box.get("1.0", "end").strip()
@@ -1635,6 +1833,8 @@ class SpecBuilderApp(ctk.CTk):
         self._render_client_list(self.search_var.get())
         if self.calc_picker_open:
             self._render_calc_list(self.calc_search_var.get())
+        if self.active_tab == "history":
+            self._render_history()
 
     def _apply_theme(self, theme_name: str, save: bool = True):
         self.current_theme_name = theme_name
@@ -1661,14 +1861,31 @@ class SpecBuilderApp(ctk.CTk):
         self.user_lbl.configure(text_color=t["text_main"])
         self.left_nav.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
         self.nav_title.configure(text_color=t["text_muted"])
-        self.nav_active_btn.configure(fg_color=t["sel_bg"], hover_color=t["hover"], text_color=t["sel_text"])
+        self.nav_active_btn.configure(hover_color=t["hover"])
+        self.nav_history_btn.configure(hover_color=t["hover"])
+        if self.active_tab == "spec":
+            self.nav_active_btn.configure(fg_color=t["sel_bg"], text_color=t["sel_text"])
+            self.nav_history_btn.configure(fg_color="transparent", text_color=t["text_main"])
+        else:
+            self.nav_history_btn.configure(fg_color=t["sel_bg"], text_color=t["sel_text"])
+            self.nav_active_btn.configure(fg_color="transparent", text_color=t["text_main"])
+
         self.nav_spec_btn.configure(hover_color=t["hover"], text_color=t["text_main"])
         self.nav_calc_btn.configure(hover_color=t["hover"], text_color=t["text_main"])
         self.nav_reload_btn.configure(hover_color=t["hover"], text_color=t["text_muted"])
         self.status_badge.configure(text_color=t["accent"])
         self.center.configure(fg_color=t["bg_app"])
-        for card in (self.card1, self.card2, self.card3):
+        for card in (self.card1, self.card2, self.card3, self.hist_top_card):
             card.configure(fg_color=t["bg_card"], border_color=t["border"])
+        self.hist_title_lbl.configure(text_color=t["title_accent2"])
+        self.hist_count_lbl.configure(text_color=t["text_muted"])
+        self.hist_day_menu.configure(
+            fg_color=t["badge_bg"], button_color=t["accent"], button_hover_color=t["accent_hover"],
+            text_color=t["text_main"], dropdown_fg_color=t["bg_card"],
+            dropdown_hover_color=t["hover"], dropdown_text_color=t["text_main"],
+        )
+        self.hist_scroll.configure(fg_color=t["bg_card"], border_color=t["border"])
+
         self.c1_title.configure(text_color=t["title_accent1"])
         self.c2_title.configure(text_color=t["title_accent2"])
         self.c3_title.configure(text_color=t["title_accent3"])
@@ -1778,6 +1995,8 @@ class SpecBuilderApp(ctk.CTk):
         self._set_calc_picker_visible(False)
 
     def _select_client(self, client_name: str):
+        if self.active_tab != "spec":
+            self._switch_tab("spec")
         self.selected_client = client_name
         self.selected_firm_lbl.configure(text=client_name)
         t = self.t
@@ -1850,9 +2069,8 @@ class SpecBuilderApp(ctk.CTk):
                     use_open, from_clipboard_only,
                     lambda m: self._set_status(m, self.t["title_accent1"]),
                 )
-                self._set_status("Готово! Спецификация открыта в Excel.", self.t["accent"])
-                self.after(0, self.deiconify)
-                self.after(0, lambda: messagebox.showinfo("Готово", f"Спецификация собрана и открыта в Excel:\n{res}"))
+                self._set_status(f"Готово! Открыт Excel: {os.path.basename(res)}", self.t["accent"])
+                self.after(0, self._refresh_history_days)
             except Exception as e:
                 self._set_status(f"Ошибка: {e}", "#ef4444")
                 self.after(0, self.deiconify)
