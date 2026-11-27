@@ -1090,6 +1090,11 @@ def is_ignored_calc_filename(fname: str) -> bool:
     return low.startswith("~$") or any(b in low for b in ("счет", "счёт", "расчет", "расчёт", "прайс"))
 
 
+def is_old_calc_filename(fname: str) -> bool:
+    low = fname.lower()
+    return "(стар" in low or "стар)" in low or "_old" in low or "(old" in low
+
+
 def find_invoice_calc_folder(calc_folder: str, invoice_num: str) -> str:
     if not calc_folder or not os.path.isdir(calc_folder) or not invoice_num:
         return ""
@@ -1161,13 +1166,20 @@ def pick_best_blank_in_folder(folder: str, tokens: list, item_idx: int = 0) -> s
         f for f in os.listdir(folder)
         if f.lower().endswith((".xls", ".xlsx")) and not is_ignored_calc_filename(f)
     ]
-    best_file, best_hits = "", 0
+    candidates = []
     for fname in files:
         hits = sum(1 for tok in tokens if tok in fname.lower())
-        if hits > best_hits:
-            best_hits, best_file = hits, os.path.join(folder, fname)
-    if best_file:
-        return best_file
+        if hits > 0:
+            full_path = os.path.join(folder, fname)
+            try:
+                mtime = os.path.getmtime(full_path)
+            except Exception:
+                mtime = 0.0
+            not_old = 0 if is_old_calc_filename(fname) else 1
+            candidates.append((hits, not_old, mtime, full_path))
+    if candidates:
+        candidates.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        return candidates[0][3]
     if item_idx > 0:
         for ext in (".xls", ".xlsx"):
             for fname in files:
