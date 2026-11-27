@@ -423,7 +423,7 @@ def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> st
 
 
 # =============================================================================
-# РАБОТА С 1С (ТОЧНЫЙ ПОИСК В ПОЛЕ СПРАВА + ПЕЧАТЬ «СЧЁТ В ФОРМАТЕ 7.7»)
+# РАБОТА С 1С (УСТОЙЧИВЫЙ ПОИСК С УЧЁТОМ МАСШТАБА ЭКРАНА + ПЕЧАТЬ 7.7)
 # =============================================================================
 def find_1c_window():
     desktop = Desktop(backend="uia")
@@ -452,12 +452,17 @@ def get_el_text_all(el) -> str:
     return " ".join(parts).strip()
 
 
-def has_open_invoice_doc(win_1c) -> bool:
-    """Проверяет, открылась ли форма документа счёта (по кнопке «Провести и закрыть»)."""
+def has_open_invoice_doc(win_1c, invoice_number: str = "") -> bool:
+    """Проверяет, открылась ли форма документа счёта (по кнопкам документа или вкладке)."""
+    num_clean = str(invoice_number).strip().lstrip("0")
     try:
         for el in win_1c.descendants():
             txt = (el.window_text() or "").strip().lower()
-            if txt == "провести и закрыть":
+            if txt in ("провести и закрыть", "записать"):
+                r = el.rectangle()
+                if r.width() > 20 and r.height() > 10:
+                    return True
+            if num_clean and "счет покупателю" in txt and num_clean in txt:
                 r = el.rectangle()
                 if r.width() > 20 and r.height() > 10:
                     return True
@@ -506,6 +511,10 @@ def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
 
 
 def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
+    """
+    Вводит номер счёта в поиск списка «Счета покупателям».
+    Возвращает кортеж (toolbar_bottom, used_ctrl_f).
+    """
     win_rect = win_1c.rectangle()
     toolbar_top = None
     toolbar_bottom = None
@@ -514,7 +523,7 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
         for el in win_1c.descendants():
             if (el.window_text() or "").strip().lower() == "создать":
                 r = el.rectangle()
-                if r.width() > 10 and r.top > win_rect.top + 60:
+                if r.width() > 10 and r.top > win_rect.top + 50:
                     toolbar_top = r.top
                     toolbar_bottom = r.bottom
                     break
@@ -528,11 +537,11 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
             r = el.rectangle()
             if r.width() < 40 or r.height() < 12:
                 continue
-            if r.top < win_rect.top + 70:
+            if r.top < win_rect.top + 60:
                 continue
             name = (el.window_text() or "").lower()
-            is_right = r.left > (win_rect.left + win_rect.width() * 0.45)
-            near_toolbar = (toolbar_top is None) or (abs(r.top - toolbar_top) < 45)
+            is_right = r.left > (win_rect.left + win_rect.width() * 0.42)
+            near_toolbar = (toolbar_top is None) or (abs(r.top - toolbar_top) < 65)
             if "поиск" in name and near_toolbar:
                 candidates.insert(0, el)
             elif is_right and near_toolbar:
@@ -553,34 +562,74 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
         press_vk(win32con.VK_BACK)
         time.sleep(0.15)
         type_unicode_text(str(invoice_number))
-        time.sleep(0.3)
+        time.sleep(0.35)
         press_vk(win32con.VK_RETURN)
         time.sleep(2.2)
-    else:
-        log_cb(f"Вводим «{invoice_number}» в поиск списка...")
-        press_ctrl_key(0x46)
-        time.sleep(0.8)
-        type_unicode_text(str(invoice_number))
-        time.sleep(0.3)
+        return toolbar_bottom, False
+
+    log_cb(f"Вводим «{invoice_number}» через Ctrl+F...")
+    press_ctrl_key(0x46)  # Ctrl+F (окно «Найти» в 1С)
+    time.sleep(0.9)
+    type_unicode_text(str(invoice_number))
+    time.sleep(0.35)
+    press_vk(win32con.VK_RETURN)
+    time.sleep(2.2)
+    return toolbar_bottom, True
+
+
+def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_ctrl_f: bool, log_cb) -> bool:
+    """
+    Открывает отфильтрованную строку счёта (устойчиво к любому масштабу DPI):
+    1. Если уже открыт нужный документ — сразу возвращаем True.
+    2. Пробуем открыть клавиатурой (Enter после Ctrl+F, или Down -> Enter после поля поиска).
+    3. Ищем элемент таблицы UIA (Table/DataGrid) и делаем двойной клик в его 1-ю строку.
+    4. Ищем ячейку по тексту номера счёта.
+    5. Запасной двойной клик ниже панели инструментов.
+    """
+    if has_open_invoice_doc(win_1c, invoice_number):
+        return True
+
+    if used_ctrl_f:
+        log_cb("Открываем найденную строку клавишей Enter...")
         press_vk(win32con.VK_RETURN)
-        time.sleep(2.2)
+        time.sleep(2.0)
+        if has_open_invoice_doc(win_1c, invoice_number):
+            return True
 
-    return toolbar_bottom
+    log_cb("Переходим в таблицу списка (↓ → Enter)...")
+    press_vk(win32con.VK_DOWN)
+    time.sleep(0.4)
+    press_vk(win32con.VK_RETURN)
+    time.sleep(2.0)
+    if has_open_invoice_doc(win_1c, invoice_number):
+        return True
 
-
-def double_click_invoice_row(win_1c, invoice_number: str, toolbar_bottom, log_cb) -> bool:
-    num_str = str(invoice_number).strip().lstrip("0") or "0"
     win_rect = win_1c.rectangle()
-    pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
+    try:
+        for ct in ("Table", "DataGrid"):
+            for tbl in win_1c.descendants(control_type=ct):
+                r = tbl.rectangle()
+                if r.width() > 300 and r.height() > 120 and r.top > win_rect.top + 80:
+                    abs_x = r.left + min(180, r.width() // 4)
+                    for offset_y in (42, 58, 30):
+                        abs_y = r.top + offset_y
+                        log_cb(f"Открываем 1-ю строку таблицы (y={abs_y})...")
+                        mouse.double_click(coords=(abs_x, abs_y))
+                        time.sleep(1.8)
+                        if has_open_invoice_doc(win_1c, invoice_number):
+                            return True
+    except Exception:
+        pass
 
-    # Способ 1: ищем текст номера счёта
+    num_str = str(invoice_number).strip().lstrip("0") or "0"
+    pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
     try:
         for el in win_1c.descendants():
             txt = get_el_text_all(el)
             if not txt:
                 continue
             r = el.rectangle()
-            if r.top < win_rect.top + 130 or r.width() < 20 or r.height() < 10:
+            if r.top < win_rect.top + 120 or r.width() < 20 or r.height() < 10:
                 continue
             if r.left > win_rect.left + win_rect.width() * 0.6:
                 continue
@@ -588,39 +637,19 @@ def double_click_invoice_row(win_1c, invoice_number: str, toolbar_bottom, log_cb
                 log_cb(f"Найдена строка счёта «{txt}» — открываем...")
                 el.double_click_input()
                 time.sleep(1.8)
-                if has_open_invoice_doc(win_1c):
+                if has_open_invoice_doc(win_1c, invoice_number):
                     return True
     except Exception:
         pass
 
-    # Способ 2: ищем шапку колонки
-    try:
-        for hdr_name in ("номер", "контрагент", "дата"):
-            for el in win_1c.descendants():
-                txt = (el.window_text() or "").strip().lower()
-                if txt == hdr_name or txt.startswith(hdr_name + " "):
-                    r = el.rectangle()
-                    if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 100:
-                        abs_x = (r.left + min(r.right, r.left + 80)) // 2
-                        abs_y = r.bottom + 24
-                        log_cb(f"Открываем строку под столбцом «{hdr_name.capitalize()}»...")
-                        mouse.double_click(coords=(abs_x, abs_y))
-                        time.sleep(1.8)
-                        if has_open_invoice_doc(win_1c):
-                            return True
-    except Exception:
-        pass
-
-    # Способ 3: точный геометрический двойной клик под панелью «Создать» / поиском
-    base_y = toolbar_bottom if toolbar_bottom else (win_rect.top + 135)
+    base_y = toolbar_bottom if toolbar_bottom else (win_rect.top + int(win_rect.height() * 0.14))
     abs_x = win_rect.left + int(win_rect.width() * 0.22)
-
-    for dy in (78, 52, 96):
+    for dy in (65, 90, 115):
         abs_y = base_y + dy
-        log_cb(f"Открываем 1-ю отфильтрованную строку счёта (y={abs_y})...")
+        log_cb(f"Пробуем открыть строку (y={abs_y})...")
         mouse.double_click(coords=(abs_x, abs_y))
         time.sleep(1.8)
-        if has_open_invoice_doc(win_1c):
+        if has_open_invoice_doc(win_1c, invoice_number):
             return True
 
     return False
@@ -636,7 +665,7 @@ def click_document_print_77(win_1c, log_cb):
             txt = (el.window_text() or "").strip().lower()
             if txt == "печать" or txt.startswith("печать "):
                 r = el.rectangle()
-                if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 60:
+                if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 50:
                     if r.top < best_top:
                         best_top = r.top
                         print_btn = el
@@ -688,25 +717,30 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
         log_cb("Ждём полную загрузку интерфейса 1С (6 сек)...")
         time.sleep(6.0)
 
+    try:
+        win_1c.restore()
+    except Exception:
+        pass
     win_1c.set_focus()
-    time.sleep(0.6)
+    time.sleep(0.7)
 
     if not use_open_form:
-        log_cb("Переходим в «Счета покупателям»...")
-        if not click_1c_element_by_name(win_1c, "Счета покупателям", timeout=2.5, exact_only=True):
-            if click_1c_element_by_name(win_1c, "Продажи", timeout=8.0, exact_only=True):
-                time.sleep(0.9)
-                click_1c_element_by_name(win_1c, "Счета покупателям", timeout=6.0)
-        time.sleep(1.5)
+        if not has_open_invoice_doc(win_1c, invoice_number):
+            log_cb("Переходим в «Счета покупателям»...")
+            if not click_1c_element_by_name(win_1c, "Счета покупателям", timeout=2.5, exact_only=True):
+                if click_1c_element_by_name(win_1c, "Продажи", timeout=8.0, exact_only=True):
+                    time.sleep(0.9)
+                    click_1c_element_by_name(win_1c, "Счета покупателям", timeout=6.0)
+            time.sleep(1.5)
 
-        toolbar_bottom = focus_list_search_box_and_filter(win_1c, invoice_number, log_cb)
+            toolbar_bottom, used_ctrl_f = focus_list_search_box_and_filter(win_1c, invoice_number, log_cb)
 
-        if not double_click_invoice_row(win_1c, invoice_number, toolbar_bottom, log_cb):
-            raise RuntimeError(
-                f"В списке «Счета покупателям» не удалось открыть строку со счётом № {invoice_number}.\n"
-                "Проверь номер счёта и период отбора в 1С."
-            )
-        time.sleep(1.0)
+            if not open_filtered_invoice_row(win_1c, invoice_number, toolbar_bottom, used_ctrl_f, log_cb):
+                raise RuntimeError(
+                    f"В списке «Счета покупателям» не удалось открыть строку со счётом № {invoice_number}.\n"
+                    "Проверь номер счёта и период отбора в 1С (или открой «Счёт в формате 7.7» вручную и поставь галочку)."
+                )
+            time.sleep(1.0)
 
         click_document_print_77(win_1c, log_cb)
 
@@ -846,10 +880,6 @@ def is_ignored_calc_filename(fname: str) -> bool:
 
 
 def find_invoice_calc_folder(calc_folder: str, invoice_num: str) -> str:
-    """
-    Ищет подпапку с номером счёта внутри папки фирмы в РАСЧЕТЫ:
-    например, \\Fs01\obmen\РАСЧЕТЫ\APS\ВП\сч 0319_2026 или ...\сч 0319.
-    """
     if not calc_folder or not os.path.isdir(calc_folder) or not invoice_num:
         return ""
 
@@ -932,7 +962,6 @@ def pick_best_blank_in_folder(folder: str, tokens: list, item_idx: int = 0) -> s
         if f.lower().endswith((".xls", ".xlsx")) and not is_ignored_calc_filename(f)
     ]
 
-    # 1. Ищем файл по названию платы (например, bvp1.xls)
     best_file = ""
     best_hits = 0
     for fname in files:
@@ -944,7 +973,6 @@ def pick_best_blank_in_folder(folder: str, tokens: list, item_idx: int = 0) -> s
     if best_file:
         return best_file
 
-    # 2. Если в папке счёта файлы названы по номерам позиций: 1.xls, 2.xls, 3.xls
     if item_idx > 0:
         for ext in (".xls", ".xlsx"):
             exact_name = f"{item_idx}{ext}"
@@ -968,12 +996,10 @@ def find_calc_bottom_row(
     tokens = extract_board_tokens(board_name + " " + raw_name)
     target_file = ""
 
-    # Приоритет 1: папка конкретного счёта (например, РАСЧЕТЫ\APS\ВП\сч 0319_2026 -> 1.xls / 2.xls / 3.xls)
     inv_folder = find_invoice_calc_folder(calc_folder, invoice_num)
     if inv_folder:
         target_file = pick_best_blank_in_folder(inv_folder, tokens, item_idx=item_idx)
 
-    # Приоритет 2: корень папки фирмы в РАСЧЕТЫ (например, РАСЧЕТЫ\APS\bvp1.xls)
     if not target_file and tokens:
         target_file = pick_best_blank_in_folder(calc_folder, tokens, item_idx=0)
 
@@ -1043,7 +1069,6 @@ def build_specification(
         wb = excel.Workbooks.Open(new_file)
         ws = wb.Sheets(1)
 
-        # 1. Обновляем "Приложение № ..." в строках 1-3 (сохраняя договор)
         for r in range(1, 4):
             for c in range(1, 17):
                 val = ws.Cells(r, c).Value
@@ -1055,7 +1080,6 @@ def build_specification(
                         flags=re.IGNORECASE,
                     )
 
-        # 2. Обновляем "Спецификация № ... от ... г." в строках 2-6
         spec_title_updated = False
         for r in range(2, 7):
             for c in range(1, 5):
@@ -1069,7 +1093,6 @@ def build_specification(
         if not spec_title_updated:
             ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
 
-        # 3. Находим строку заголовка таблицы ("Наименование")
         header_row = 8
         for r in range(5, 13):
             b_val = str(ws.Cells(r, 2).Value or "").lower()
@@ -1078,7 +1101,6 @@ def build_specification(
                 break
         start_row = header_row + 1
 
-        # 4. Находим строку "Итого без НДС" (ищем по столбцам A..G)
         total_row = start_row
         while total_row < 150:
             row_text = " ".join(str(ws.Cells(total_row, c).Value or "") for c in range(1, 8)).lower()
@@ -1097,18 +1119,17 @@ def build_specification(
             for _ in range(existing_rows - needed_rows):
                 ws.Rows(start_row + needed_rows).Delete()
 
-        # 5. Заполняем позиции (столбцы A-O)
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
-            ws.Cells(r, 1).Value = idx                                   # A: № п/п
-            ws.Cells(r, 2).Value = item["name"]                          # B: Наименование платы
-            ws.Cells(r, 3).Value = item["ps_num"]                        # C: Зав. № заказа (Пэсочка)
-            ws.Cells(r, 4).Value = item["term"]                          # D: Срок пост.
-            ws.Cells(r, 5).Value = item["unit"]                          # E: Ед. изм.
-            ws.Cells(r, 6).Value = item["qty"]                           # F: Кол-во
-            ws.Cells(r, 7).Value = item["price"]                         # G: Цена
-            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)   # H: Сумма
-            ws.Cells(r, 9).Value = ""                                    # I: Площадь
+            ws.Cells(r, 1).Value = idx
+            ws.Cells(r, 2).Value = item["name"]
+            ws.Cells(r, 3).Value = item["ps_num"]
+            ws.Cells(r, 4).Value = item["term"]
+            ws.Cells(r, 5).Value = item["unit"]
+            ws.Cells(r, 6).Value = item["qty"]
+            ws.Cells(r, 7).Value = item["price"]
+            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
+            ws.Cells(r, 9).Value = ""
 
             tech = find_calc_bottom_row(
                 calc_folder,
@@ -1120,7 +1141,6 @@ def build_specification(
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
 
-        # 6. Заполняем итоги (ищем подписи по столбцам A..G, пишем в H) и суммы прописью (в C)
         new_total_row = start_row + needed_rows
         for r in range(new_total_row, new_total_row + 12):
             ag_low = " ".join(str(ws.Cells(r, c).Value or "") for c in range(1, 8)).lower()
