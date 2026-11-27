@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from difflib import SequenceMatcher
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -292,6 +293,84 @@ def clear_clipboard():
 
 
 # =============================================================================
+# УМНЫЙ ПОИСК И ТРАНСЛИТЕРАЦИЯ ФИРМ (РУС <-> ЛАТИНИЦА ДЛЯ ПАПКИ «РАСЧЕТЫ»)
+# =============================================================================
+TRANSLIT_MAP = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+    "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "h", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch",
+    "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+}
+
+
+def translit_ru(text: str) -> str:
+    s = text.lower().replace("кс", "ks")
+    return "".join(TRANSLIT_MAP.get(ch, ch) for ch in s)
+
+
+def normalize_latin(text: str) -> str:
+    """Приводит кириллицу и латиницу к единому виду для точного сопоставления."""
+    s = translit_ru(text)
+    s = s.replace("x", "ks").replace("w", "v").replace("q", "k")
+    s = s.replace("ph", "f").replace("kh", "h").replace("ts", "c").replace("tz", "c")
+    s = s.replace("shch", "sch").replace("yu", "u").replace("ju", "u").replace("ya", "a").replace("ja", "a")
+    s = s.replace("yo", "e").replace("je", "e").replace("ye", "e")
+    s = s.replace("j", "i").replace("y", "i")
+    return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def normalize_raw(text: str) -> str:
+    s = text.lower().replace("ё", "е")
+    return re.sub(r"[^a-zа-я0-9]+", "", s)
+
+
+def score_folder_match(client_name: str, folder_name: str) -> float:
+    c_raw = normalize_raw(client_name)
+    f_raw = normalize_raw(folder_name)
+    if not c_raw or not f_raw:
+        return 0.0
+    if c_raw == f_raw:
+        return 1.0
+
+    c_lat = normalize_latin(client_name)
+    f_lat = normalize_latin(folder_name)
+    if not c_lat or not f_lat:
+        return 0.0
+    if c_lat == f_lat:
+        return 0.99
+
+    if f_lat.startswith(c_lat) and len(c_lat) >= 3:
+        return 0.90 + 0.08 * (len(c_lat) / len(f_lat))
+    if c_lat.startswith(f_lat) and len(f_lat) >= 3:
+        return 0.85 + 0.08 * (len(f_lat) / len(c_lat))
+
+    if c_lat in f_lat and len(c_lat) >= 4:
+        return 0.82 + 0.06 * (len(c_lat) / len(f_lat))
+    if f_lat in c_lat and len(f_lat) >= 4:
+        return 0.80 + 0.06 * (len(f_lat) / len(c_lat))
+
+    return SequenceMatcher(None, c_lat, f_lat).ratio()
+
+
+def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> str:
+    """Автоматически подбирает папку фирмы в «РАСЧЕТЫ» (учитывает сохранённый выбор и транслит)."""
+    mapped = mapping.get(client_name) or CFG.get("folder_mapping", {}).get(client_name)
+    if mapped and mapped in calc_folders:
+        return mapped
+
+    best_folder = "(не выбрана)"
+    best_score = 0.0
+    for folder in calc_folders:
+        sc = score_folder_match(client_name, folder)
+        if sc > best_score:
+            best_score = sc
+            best_folder = folder
+
+    return best_folder if best_score >= 0.72 else "(не выбрана)"
+
+
+# =============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =============================================================================
 def resolve_1c_exe(configured_path: str) -> str:
@@ -407,21 +486,6 @@ def find_latest_spec(spec_folder: str):
     raise FileNotFoundError(f"В папке {spec_folder} нет файлов Excel (.xls / .xlsx).")
 
 
-def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> str:
-    mapped = mapping.get(client_name) or CFG.get("folder_mapping", {}).get(client_name)
-    if mapped and mapped in calc_folders:
-        return mapped
-
-    low = client_name.lower()
-    for folder in calc_folders:
-        if folder.lower() == low:
-            return folder
-    for folder in calc_folders:
-        if low in folder.lower() or folder.lower() in low:
-            return folder
-    return "(не выбрана)"
-
-
 # =============================================================================
 # РАБОТА С 1С (УСТОЙЧИВЫЙ ПОИСК С УЧЁТОМ МАСШТАБА ЭКРАНА + ПЕЧАТЬ 7.7)
 # =============================================================================
@@ -453,7 +517,6 @@ def get_el_text_all(el) -> str:
 
 
 def has_open_invoice_doc(win_1c, invoice_number: str = "") -> bool:
-    """Проверяет, открылась ли форма документа счёта (по кнопкам документа или вкладке)."""
     num_clean = str(invoice_number).strip().lstrip("0")
     try:
         for el in win_1c.descendants():
@@ -511,10 +574,6 @@ def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
 
 
 def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
-    """
-    Вводит номер счёта в поиск списка «Счета покупателям».
-    Возвращает кортеж (toolbar_bottom, used_ctrl_f).
-    """
     win_rect = win_1c.rectangle()
     toolbar_top = None
     toolbar_bottom = None
@@ -568,7 +627,7 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
         return toolbar_bottom, False
 
     log_cb(f"Вводим «{invoice_number}» через Ctrl+F...")
-    press_ctrl_key(0x46)  # Ctrl+F (окно «Найти» в 1С)
+    press_ctrl_key(0x46)
     time.sleep(0.9)
     type_unicode_text(str(invoice_number))
     time.sleep(0.35)
@@ -578,14 +637,6 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
 
 
 def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_ctrl_f: bool, log_cb) -> bool:
-    """
-    Открывает отфильтрованную строку счёта (устойчиво к любому масштабу DPI):
-    1. Если уже открыт нужный документ — сразу возвращаем True.
-    2. Пробуем открыть клавиатурой (Enter после Ctrl+F, или Down -> Enter после поля поиска).
-    3. Ищем элемент таблицы UIA (Table/DataGrid) и делаем двойной клик в его 1-ю строку.
-    4. Ищем ячейку по тексту номера счёта.
-    5. Запасной двойной клик ниже панели инструментов.
-    """
     if has_open_invoice_doc(win_1c, invoice_number):
         return True
 
@@ -1164,7 +1215,7 @@ def build_specification(
 
 
 # =============================================================================
-# ПРИЛОЖЕНИЕ С 7 ТЕМАМИ И ЖИВЫМ ПОИСКОМ ПО «СПЕЦИФИКАЦИЯМ» И «РАСЧЁТАМ»
+# ПРИЛОЖЕНИЕ С 7 ТЕМАМИ И АВТОПОДБОРОМ ПАПКИ «РАСЧЕТЫ» ПО ТРАНСЛИТУ
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
@@ -1378,7 +1429,7 @@ class SpecBuilderApp(ctk.CTk):
         self.calc_search_entry = ctk.CTkEntry(
             self.card1,
             textvariable=self.calc_search_var,
-            placeholder_text="🔍 Поиск папки фирмы в «РАСЧЕТЫ»...",
+            placeholder_text="🔍 Поиск папки фирмы в «РАСЧЕТЫ» (можно по-русски или латиницей)...",
             height=34,
         )
         self.calc_search_entry.pack(fill="x", padx=16, pady=(0, 6))
@@ -1439,7 +1490,7 @@ class SpecBuilderApp(ctk.CTk):
             self.card3, height=115, border_width=1, font=ctk.CTkFont(family="Consolas", size=12)
         )
         self.log_box.pack(fill="both", expand=True, padx=16, pady=(0, 14))
-        self._append_log("Готово. Выберите фирму справа, при необходимости найдите папку в «РАСЧЕТЫ» и введите № счёта.")
+        self._append_log("Готово. Выберите фирму справа — папка в «РАСЧЕТЫ» подберётся автоматически.")
 
         btn_row = ctk.CTkFrame(self.center, fg_color="transparent")
         btn_row.pack(fill="x", pady=(4, 8))
@@ -1619,7 +1670,24 @@ class SpecBuilderApp(ctk.CTk):
 
         t = self.t
         q = query.strip().lower()
-        items = ["(не выбрана)"] + [f for f in self.all_calc_folders if q in f.lower()]
+        q_lat = normalize_latin(q) if q else ""
+
+        if q:
+            matched = [
+                f for f in self.all_calc_folders
+                if q in f.lower() or (q_lat and q_lat in normalize_latin(f))
+            ]
+            items = ["(не выбрана)"] + matched
+        else:
+            # Если папка уже подобрана — ставим её самой первой, чтобы сразу была на виду
+            items = []
+            if self.selected_calc_folder and self.selected_calc_folder != "(не выбрана)":
+                items.append(self.selected_calc_folder)
+            items.append("(не выбрана)")
+            for f in self.all_calc_folders:
+                if f != self.selected_calc_folder:
+                    items.append(f)
+
         for name in items[:80]:
             is_sel = name == self.selected_calc_folder
             btn = ctk.CTkButton(
