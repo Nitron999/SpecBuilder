@@ -23,7 +23,7 @@ from pywinauto import Desktop, mouse
 
 
 # =============================================================================
-# НАСТРОЙКИ ПО УМОЛЧАНИЮ (зашиты в EXE)
+# НАСТРОЙКИ ПО УМОЛЧАНИЮ
 # =============================================================================
 CFG = {
     "company_name": 'ООО "ПЕЧАТНЫЕ ПЛАТЫ"',
@@ -32,9 +32,7 @@ CFG = {
     "1c_base_args": 'ENTERPRISE /S"DB01\\pp_buh_new" /N"МамонтоваЛД" /P"mamon123"',
     "specs_root": r"\\Fs01\obmen\ВП\Спецификации 2019 Новая форма",
     "calc_root": r"\\Fs01\obmen\РАСЧЕТЫ",
-    "folder_mapping": {
-        "Электроприбор": "Elektropribor_K",
-    },
+    "folder_mapping": {"Электроприбор": "Elektropribor_K"},
 }
 
 SETTINGS_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SpecBuilder")
@@ -46,200 +44,74 @@ SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 # =============================================================================
 THEMES = {
     "Тёмная ночь": {
-        "mode": "dark",
-        "bg_app": "#0f1216",
-        "bg_sidebar": "#13171d",
-        "bg_card": "#181d24",
-        "bg_input": "#10141a",
-        "border": "#262d38",
-        "accent": "#10b981",
-        "accent_hover": "#059669",
-        "accent_text": "#052e16",
-        "sel_bg": "#163529",
-        "sel_text": "#34d399",
-        "hover": "#1f2937",
-        "title_accent1": "#f59e0b",
-        "title_accent2": "#38bdf8",
-        "title_accent3": "#10b981",
-        "text_main": "#f1f5f9",
-        "text_muted": "#94a3b8",
-        "badge_bg": "#1d2430",
-        "toggle_off_bg": "#1e3a5f",
-        "toggle_off_hover": "#254b7a",
-        "toggle_off_border": "#38bdf8",
-        "toggle_off_text": "#e0f2fe",
-        "toggle_on_bg": "#d97706",
-        "toggle_on_hover": "#b45309",
-        "toggle_on_border": "#fbbf24",
-        "toggle_on_text": "#ffffff",
+        "mode": "dark", "bg_app": "#0f1216", "bg_sidebar": "#13171d", "bg_card": "#181d24",
+        "bg_input": "#10141a", "border": "#262d38", "accent": "#10b981", "accent_hover": "#059669",
+        "accent_text": "#052e16", "sel_bg": "#163529", "sel_text": "#34d399", "hover": "#1f2937",
+        "title_accent1": "#f59e0b", "title_accent2": "#38bdf8", "title_accent3": "#10b981",
+        "text_main": "#f1f5f9", "text_muted": "#94a3b8", "badge_bg": "#1d2430",
+        "toggle_off_bg": "#1e3a5f", "toggle_off_hover": "#254b7a", "toggle_off_border": "#38bdf8",
+        "toggle_off_text": "#e0f2fe", "toggle_on_bg": "#d97706", "toggle_on_hover": "#b45309",
+        "toggle_on_border": "#fbbf24", "toggle_on_text": "#ffffff",
     },
     "Светлая классика": {
-        "mode": "light",
-        "bg_app": "#f1f5f9",
-        "bg_sidebar": "#ffffff",
-        "bg_card": "#ffffff",
-        "bg_input": "#f8fafc",
-        "border": "#cbd5e1",
-        "accent": "#16a34a",
-        "accent_hover": "#15803d",
-        "accent_text": "#ffffff",
-        "sel_bg": "#dcfce7",
-        "sel_text": "#166534",
-        "hover": "#e2e8f0",
-        "title_accent1": "#d97706",
-        "title_accent2": "#0284c7",
-        "title_accent3": "#16a34a",
-        "text_main": "#0f172a",
-        "text_muted": "#475569",
-        "badge_bg": "#f1f5f9",
-        "toggle_off_bg": "#e0f2fe",
-        "toggle_off_hover": "#bae6fd",
-        "toggle_off_border": "#0284c7",
-        "toggle_off_text": "#0c4a6e",
-        "toggle_on_bg": "#d97706",
-        "toggle_on_hover": "#b45309",
-        "toggle_on_border": "#b45309",
-        "toggle_on_text": "#ffffff",
+        "mode": "light", "bg_app": "#f1f5f9", "bg_sidebar": "#ffffff", "bg_card": "#ffffff",
+        "bg_input": "#f8fafc", "border": "#cbd5e1", "accent": "#16a34a", "accent_hover": "#15803d",
+        "accent_text": "#ffffff", "sel_bg": "#dcfce7", "sel_text": "#166534", "hover": "#e2e8f0",
+        "title_accent1": "#d97706", "title_accent2": "#0284c7", "title_accent3": "#16a34a",
+        "text_main": "#0f172a", "text_muted": "#475569", "badge_bg": "#f1f5f9",
+        "toggle_off_bg": "#e0f2fe", "toggle_off_hover": "#bae6fd", "toggle_off_border": "#0284c7",
+        "toggle_off_text": "#0c4a6e", "toggle_on_bg": "#d97706", "toggle_on_hover": "#b45309",
+        "toggle_on_border": "#b45309", "toggle_on_text": "#ffffff",
     },
     "Изумруд СДЭК": {
-        "mode": "dark",
-        "bg_app": "#0b1410",
-        "bg_sidebar": "#0f1c16",
-        "bg_card": "#13241c",
-        "bg_input": "#0c1712",
-        "border": "#1f3b2e",
-        "accent": "#1ab248",
-        "accent_hover": "#15963c",
-        "accent_text": "#04210c",
-        "sel_bg": "#163d25",
-        "sel_text": "#4ade80",
-        "hover": "#1a3327",
-        "title_accent1": "#4ade80",
-        "title_accent2": "#34d399",
-        "title_accent3": "#1ab248",
-        "text_main": "#ecfdf5",
-        "text_muted": "#86efac",
-        "badge_bg": "#163024",
-        "toggle_off_bg": "#1e3a5f",
-        "toggle_off_hover": "#254b7a",
-        "toggle_off_border": "#38bdf8",
-        "toggle_off_text": "#e0f2fe",
-        "toggle_on_bg": "#d97706",
-        "toggle_on_hover": "#b45309",
-        "toggle_on_border": "#fbbf24",
-        "toggle_on_text": "#ffffff",
+        "mode": "dark", "bg_app": "#0b1410", "bg_sidebar": "#0f1c16", "bg_card": "#13241c",
+        "bg_input": "#0c1712", "border": "#1f3b2e", "accent": "#1ab248", "accent_hover": "#15963c",
+        "accent_text": "#04210c", "sel_bg": "#163d25", "sel_text": "#4ade80", "hover": "#1a3327",
+        "title_accent1": "#4ade80", "title_accent2": "#34d399", "title_accent3": "#1ab248",
+        "text_main": "#ecfdf5", "text_muted": "#86efac", "badge_bg": "#163024",
+        "toggle_off_bg": "#1e3a5f", "toggle_off_hover": "#254b7a", "toggle_off_border": "#38bdf8",
+        "toggle_off_text": "#e0f2fe", "toggle_on_bg": "#d97706", "toggle_on_hover": "#b45309",
+        "toggle_on_border": "#fbbf24", "toggle_on_text": "#ffffff",
     },
     "Глубокий океан": {
-        "mode": "dark",
-        "bg_app": "#0a1320",
-        "bg_sidebar": "#0e1a2b",
-        "bg_card": "#132238",
-        "bg_input": "#0b1626",
-        "border": "#1e3554",
-        "accent": "#0ea5e9",
-        "accent_hover": "#0284c7",
-        "accent_text": "#082f49",
-        "sel_bg": "#13344f",
-        "sel_text": "#38bdf8",
-        "hover": "#1b2e4a",
-        "title_accent1": "#38bdf8",
-        "title_accent2": "#818cf8",
-        "title_accent3": "#22d3ee",
-        "text_main": "#f0f9ff",
-        "text_muted": "#94a3b8",
-        "badge_bg": "#172942",
-        "toggle_off_bg": "#312e81",
-        "toggle_off_hover": "#3730a3",
-        "toggle_off_border": "#818cf8",
-        "toggle_off_text": "#e0e7ff",
-        "toggle_on_bg": "#d97706",
-        "toggle_on_hover": "#b45309",
-        "toggle_on_border": "#fbbf24",
-        "toggle_on_text": "#ffffff",
+        "mode": "dark", "bg_app": "#0a1320", "bg_sidebar": "#0e1a2b", "bg_card": "#132238",
+        "bg_input": "#0b1626", "border": "#1e3554", "accent": "#0ea5e9", "accent_hover": "#0284c7",
+        "accent_text": "#082f49", "sel_bg": "#13344f", "sel_text": "#38bdf8", "hover": "#1b2e4a",
+        "title_accent1": "#38bdf8", "title_accent2": "#818cf8", "title_accent3": "#22d3ee",
+        "text_main": "#f0f9ff", "text_muted": "#94a3b8", "badge_bg": "#172942",
+        "toggle_off_bg": "#312e81", "toggle_off_hover": "#3730a3", "toggle_off_border": "#818cf8",
+        "toggle_off_text": "#e0e7ff", "toggle_on_bg": "#d97706", "toggle_on_hover": "#b45309",
+        "toggle_on_border": "#fbbf24", "toggle_on_text": "#ffffff",
     },
     "Графит и золото": {
-        "mode": "dark",
-        "bg_app": "#17171a",
-        "bg_sidebar": "#1e1e22",
-        "bg_card": "#242429",
-        "bg_input": "#19191d",
-        "border": "#36363d",
-        "accent": "#eab308",
-        "accent_hover": "#ca8a04",
-        "accent_text": "#1c1917",
-        "sel_bg": "#383018",
-        "sel_text": "#facc15",
-        "hover": "#2d2d34",
-        "title_accent1": "#facc15",
-        "title_accent2": "#fbbf24",
-        "title_accent3": "#eab308",
-        "text_main": "#fafaf9",
-        "text_muted": "#a8a29e",
-        "badge_bg": "#2b2b31",
-        "toggle_off_bg": "#1e3a5f",
-        "toggle_off_hover": "#254b7a",
-        "toggle_off_border": "#38bdf8",
-        "toggle_off_text": "#e0f2fe",
-        "toggle_on_bg": "#16a34a",
-        "toggle_on_hover": "#15803d",
-        "toggle_on_border": "#4ade80",
-        "toggle_on_text": "#ffffff",
+        "mode": "dark", "bg_app": "#17171a", "bg_sidebar": "#1e1e22", "bg_card": "#242429",
+        "bg_input": "#19191d", "border": "#36363d", "accent": "#eab308", "accent_hover": "#ca8a04",
+        "accent_text": "#1c1917", "sel_bg": "#383018", "sel_text": "#facc15", "hover": "#2d2d34",
+        "title_accent1": "#facc15", "title_accent2": "#fbbf24", "title_accent3": "#eab308",
+        "text_main": "#fafaf9", "text_muted": "#a8a29e", "badge_bg": "#2b2b31",
+        "toggle_off_bg": "#1e3a5f", "toggle_off_hover": "#254b7a", "toggle_off_border": "#38bdf8",
+        "toggle_off_text": "#e0f2fe", "toggle_on_bg": "#16a34a", "toggle_on_hover": "#15803d",
+        "toggle_on_border": "#4ade80", "toggle_on_text": "#ffffff",
     },
     "Чёрное золото": {
-        "mode": "dark",
-        "bg_app": "#09090b",
-        "bg_sidebar": "#111114",
-        "bg_card": "#16161a",
-        "bg_input": "#0d0d10",
-        "border": "#2e2718",
-        "accent": "#d4af37",
-        "accent_hover": "#b8952a",
-        "accent_text": "#09090b",
-        "sel_bg": "#2b2412",
-        "sel_text": "#f3d267",
-        "hover": "#221e15",
-        "title_accent1": "#f3d267",
-        "title_accent2": "#d4af37",
-        "title_accent3": "#eab308",
-        "text_main": "#fefce8",
-        "text_muted": "#a1a1aa",
-        "badge_bg": "#1d1a12",
-        "toggle_off_bg": "#1e3a5f",
-        "toggle_off_hover": "#254b7a",
-        "toggle_off_border": "#38bdf8",
-        "toggle_off_text": "#e0f2fe",
-        "toggle_on_bg": "#16a34a",
-        "toggle_on_hover": "#15803d",
-        "toggle_on_border": "#4ade80",
-        "toggle_on_text": "#ffffff",
+        "mode": "dark", "bg_app": "#09090b", "bg_sidebar": "#111114", "bg_card": "#16161a",
+        "bg_input": "#0d0d10", "border": "#2e2718", "accent": "#d4af37", "accent_hover": "#b8952a",
+        "accent_text": "#09090b", "sel_bg": "#2b2412", "sel_text": "#f3d267", "hover": "#221e15",
+        "title_accent1": "#f3d267", "title_accent2": "#d4af37", "title_accent3": "#eab308",
+        "text_main": "#fefce8", "text_muted": "#a1a1aa", "badge_bg": "#1d1a12",
+        "toggle_off_bg": "#1e3a5f", "toggle_off_hover": "#254b7a", "toggle_off_border": "#38bdf8",
+        "toggle_off_text": "#e0f2fe", "toggle_on_bg": "#16a34a", "toggle_on_hover": "#15803d",
+        "toggle_on_border": "#4ade80", "toggle_on_text": "#ffffff",
     },
     "Тёплый песок": {
-        "mode": "light",
-        "bg_app": "#f5efe6",
-        "bg_sidebar": "#fbf8f3",
-        "bg_card": "#fffdf9",
-        "bg_input": "#f7f1e8",
-        "border": "#dfd3c3",
-        "accent": "#b45309",
-        "accent_hover": "#92400e",
-        "accent_text": "#ffffff",
-        "sel_bg": "#f3e5d0",
-        "sel_text": "#78350f",
-        "hover": "#ede2d2",
-        "title_accent1": "#b45309",
-        "title_accent2": "#0f766e",
-        "title_accent3": "#92400e",
-        "text_main": "#292524",
-        "text_muted": "#78716c",
-        "badge_bg": "#f2e8da",
-        "toggle_off_bg": "#e0f2fe",
-        "toggle_off_hover": "#bae6fd",
-        "toggle_off_border": "#0284c7",
-        "toggle_off_text": "#0c4a6e",
-        "toggle_on_bg": "#15803d",
-        "toggle_on_hover": "#166534",
-        "toggle_on_border": "#16a34a",
-        "toggle_on_text": "#ffffff",
+        "mode": "light", "bg_app": "#f5efe6", "bg_sidebar": "#fbf8f3", "bg_card": "#fffdf9",
+        "bg_input": "#f7f1e8", "border": "#dfd3c3", "accent": "#b45309", "accent_hover": "#92400e",
+        "accent_text": "#ffffff", "sel_bg": "#f3e5d0", "sel_text": "#78350f", "hover": "#ede2d2",
+        "title_accent1": "#b45309", "title_accent2": "#0f766e", "title_accent3": "#92400e",
+        "text_main": "#292524", "text_muted": "#78716c", "badge_bg": "#f2e8da",
+        "toggle_off_bg": "#e0f2fe", "toggle_off_hover": "#bae6fd", "toggle_off_border": "#0284c7",
+        "toggle_off_text": "#0c4a6e", "toggle_on_bg": "#15803d", "toggle_on_hover": "#166534",
+        "toggle_on_border": "#16a34a", "toggle_on_text": "#ffffff",
     },
 }
 
@@ -266,14 +138,12 @@ def save_user_settings(data: dict):
 
 
 # =============================================================================
-# УТИЛИТЫ КЛАВИАТУРЫ И БУФЕРА (БЕЗ ОШИБОК ДЕСКРИПТОРА И РАСКЛАДКИ)
+# КЛАВИАТУРА И БУФЕР ОБМЕНА
 # =============================================================================
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
-        ("wVk", ctypes.c_ushort),
-        ("wScan", ctypes.c_ushort),
-        ("dwFlags", ctypes.c_ulong),
-        ("time", ctypes.c_ulong),
+        ("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+        ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
         ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
     ]
 
@@ -287,17 +157,13 @@ class INPUT(ctypes.Structure):
 
 
 def type_unicode_text(text: str):
-    INPUT_KEYBOARD = 1
-    KEYEVENTF_UNICODE = 0x0004
-    KEYEVENTF_KEYUP = 0x0002
     extra = ctypes.c_ulong(0)
-
     for ch in text:
         code = ord(ch)
-        inp_down = INPUT(type=INPUT_KEYBOARD)
-        inp_down.union.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE, 0, ctypes.pointer(extra))
-        inp_up = INPUT(type=INPUT_KEYBOARD)
-        inp_up.union.ki = KEYBDINPUT(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
+        inp_down = INPUT(type=1)
+        inp_down.union.ki = KEYBDINPUT(0, code, 0x0004, 0, ctypes.pointer(extra))
+        inp_up = INPUT(type=1)
+        inp_up.union.ki = KEYBDINPUT(0, code, 0x0004 | 0x0002, 0, ctypes.pointer(extra))
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp_down), ctypes.sizeof(INPUT))
         ctypes.windll.user32.SendInput(1, ctypes.byref(inp_up), ctypes.sizeof(INPUT))
         time.sleep(0.03)
@@ -348,7 +214,7 @@ def clear_clipboard():
 
 
 # =============================================================================
-# УМНЫЙ ПОИСК И ТРАНСЛИТЕРАЦИЯ ФИРМ (РУС <-> ЛАТИНИЦА ДЛЯ ПАПКИ «РАСЧЕТЫ»)
+# ТРАНСЛИТЕРАЦИЯ И АВТОПОДБОР ПАПКИ В «РАСЧЕТЫ»
 # =============================================================================
 TRANSLIT_MAP = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
@@ -375,35 +241,28 @@ def normalize_latin(text: str) -> str:
 
 
 def normalize_raw(text: str) -> str:
-    s = text.lower().replace("ё", "е")
-    return re.sub(r"[^a-zа-я0-9]+", "", s)
+    return re.sub(r"[^a-zа-я0-9]+", "", text.lower().replace("ё", "е"))
 
 
 def score_folder_match(client_name: str, folder_name: str) -> float:
-    c_raw = normalize_raw(client_name)
-    f_raw = normalize_raw(folder_name)
+    c_raw, f_raw = normalize_raw(client_name), normalize_raw(folder_name)
     if not c_raw or not f_raw:
         return 0.0
     if c_raw == f_raw:
         return 1.0
-
-    c_lat = normalize_latin(client_name)
-    f_lat = normalize_latin(folder_name)
+    c_lat, f_lat = normalize_latin(client_name), normalize_latin(folder_name)
     if not c_lat or not f_lat:
         return 0.0
     if c_lat == f_lat:
         return 0.99
-
     if f_lat.startswith(c_lat) and len(c_lat) >= 3:
         return 0.90 + 0.08 * (len(c_lat) / len(f_lat))
     if c_lat.startswith(f_lat) and len(f_lat) >= 3:
         return 0.85 + 0.08 * (len(f_lat) / len(c_lat))
-
     if c_lat in f_lat and len(c_lat) >= 4:
         return 0.82 + 0.06 * (len(c_lat) / len(f_lat))
     if f_lat in c_lat and len(f_lat) >= 4:
         return 0.80 + 0.06 * (len(f_lat) / len(c_lat))
-
     return SequenceMatcher(None, c_lat, f_lat).ratio()
 
 
@@ -411,15 +270,11 @@ def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> st
     mapped = mapping.get(client_name) or CFG.get("folder_mapping", {}).get(client_name)
     if mapped and mapped in calc_folders:
         return mapped
-
-    best_folder = "(не выбрана)"
-    best_score = 0.0
+    best_folder, best_score = "(не выбрана)", 0.0
     for folder in calc_folders:
         sc = score_folder_match(client_name, folder)
         if sc > best_score:
-            best_score = sc
-            best_folder = folder
-
+            best_score, best_folder = sc, folder
     return best_folder if best_score >= 0.72 else "(не выбрана)"
 
 
@@ -427,28 +282,23 @@ def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> st
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =============================================================================
 def resolve_1c_exe(configured_path: str) -> str:
-    candidates = [
+    for path in (
         configured_path,
         r"C:\Program Files\1cv8\common\1cestart.exe",
         r"C:\Program Files (x86)\1cv8\common\1cestart.exe",
-    ]
-    for path in candidates:
+    ):
         if path and os.path.exists(path):
             return path
     raise FileNotFoundError("Не найден 1cestart.exe на этом компьютере.")
 
 
 def clean_invoice_number(raw: str) -> str:
-    s = raw.strip()
-    s = re.sub(r"^(?:сч[её]т|сч\.?|№)\s*", "", s, flags=re.IGNORECASE).strip()
-    return s
+    return re.sub(r"^(?:сч[её]т|сч\.?|№)\s*", "", raw.strip(), flags=re.IGNORECASE).strip()
 
 
 def format_1c_invoice_search(invoice_num: str) -> str:
     s = str(invoice_num).strip()
-    if re.fullmatch(r"\d{1,6}", s):
-        return f"0000-{s.zfill(6)}"
-    return s
+    return f"0000-{s.zfill(6)}" if re.fullmatch(r"\d{1,6}", s) else s
 
 
 def parse_number(val) -> float:
@@ -493,9 +343,7 @@ def amount_in_words(amount: float) -> str:
         rub += 1
         kop = 0
     rub_words = num2words(rub, lang="ru").capitalize()
-    rub_unit = decline(rub, "рубль", "рубля", "рублей")
-    kop_unit = decline(kop, "копейка", "копейки", "копеек")
-    return f"{rub_words} {rub_unit} {kop:02d} {kop_unit}"
+    return f"{rub_words} {decline(rub, 'рубль', 'рубля', 'рублей')} {kop:02d} {decline(kop, 'копейка', 'копейки', 'копеек')}"
 
 
 def split_board_and_ps(raw_name: str):
@@ -511,47 +359,44 @@ def split_board_and_ps(raw_name: str):
 
 
 def find_latest_spec(spec_folder: str):
+    """
+    Выбирает самую актуальную спецификацию: сначала по самому свежему ГОДУ изменения
+    (чтобы 2026 год всегда побеждал старый 2025 с большим номером), затем по номеру сп.,
+    затем по дате изменения.
+    """
     patterns = [
         re.compile(r"сп\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
         re.compile(r"спец(?:ификация)?\.?\s*(?:№\s*)?(\d+)", re.IGNORECASE),
     ]
-    matched = []
-    all_excel = []
-
+    matched, all_excel = [], []
     for fname in os.listdir(spec_folder):
-        if fname.startswith("~$"):
-            continue
-        if not fname.lower().endswith((".xls", ".xlsx")):
+        if fname.startswith("~$") or not fname.lower().endswith((".xls", ".xlsx")):
             continue
         full_path = os.path.join(spec_folder, fname)
         if not os.path.isfile(full_path):
             continue
         mtime = os.path.getmtime(full_path)
+        year = datetime.fromtimestamp(mtime).year
         all_excel.append((mtime, full_path))
-
         for pat in patterns:
             m = pat.search(fname)
             if m:
-                matched.append((int(m.group(1)), mtime, full_path))
+                matched.append((year, int(m.group(1)), mtime, full_path))
                 break
-
     if matched:
-        matched.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        return matched[0][0], matched[0][2]
-
+        matched.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        return matched[0][1], matched[0][3]
     if all_excel:
         all_excel.sort(key=lambda x: x[0], reverse=True)
         return 0, all_excel[0][1]
-
     raise FileNotFoundError(f"В папке {spec_folder} нет файлов Excel (.xls / .xlsx).")
 
 
 # =============================================================================
-# РАБОТА С 1С (ПОИСК, СНЯТИЕ ПЛОЩАДИ ИЗ ДОКУМЕНТА + ПЕЧАТЬ «СЧЁТ В ФОРМАТЕ 7.7»)
+# РАБОТА С 1С (ПОИСК, СНЯТИЕ ПЛОЩАДИ + ИГК ИЗ ДОКУМЕНТА, ПЕЧАТЬ 7.7)
 # =============================================================================
 def find_1c_window():
-    desktop = Desktop(backend="uia")
-    for w in desktop.windows():
+    for w in Desktop(backend="uia").windows():
         title = w.window_text()
         if "БП_рабочая база" in title or ("1С:Предприятие" in title and "Запуск" not in title):
             return w
@@ -567,8 +412,7 @@ def get_el_text_all(el) -> str:
     except Exception:
         pass
     try:
-        lp = el.legacy_properties()
-        v = lp.get("Value")
+        v = el.legacy_properties().get("Value")
         if v:
             parts.append(str(v))
     except Exception:
@@ -580,10 +424,7 @@ def has_exact_invoice_doc_open(win_1c, invoice_number: str) -> bool:
     num_clean = str(invoice_number).strip().lstrip("0") or "0"
     full_num = format_1c_invoice_search(invoice_number).lower()
     num_pat = re.compile(rf"(?:^|[-0]){re.escape(num_clean)}(?:\b|\s|от)")
-
-    has_doc_toolbar = False
-    has_matching_header = False
-
+    has_doc_toolbar = has_matching_header = False
     try:
         win_rect = win_1c.rectangle()
         for el in win_1c.descendants():
@@ -593,18 +434,13 @@ def has_exact_invoice_doc_open(win_1c, invoice_number: str) -> bool:
             r = el.rectangle()
             if r.width() < 15 or r.height() < 10:
                 continue
-
             if txt == "провести и закрыть":
                 has_doc_toolbar = True
-
-            if r.top > win_rect.top + 48 and r.top < win_rect.top + 220:
-                if "счет покупателю" in txt and num_pat.search(txt):
-                    has_matching_header = True
-                elif txt == full_num:
+            if win_rect.top + 48 < r.top < win_rect.top + 220:
+                if ("счет покупателю" in txt and num_pat.search(txt)) or txt == full_num:
                     has_matching_header = True
     except Exception:
         pass
-
     return has_doc_toolbar and has_matching_header
 
 
@@ -645,7 +481,6 @@ def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 2.5) -> bool:
     needle = exact_text.lower().replace("ё", "е")
     pid_1c = win_1c.process_id()
     desktop = Desktop(backend="uia")
-
     while time.time() < deadline:
         try:
             for w in desktop.windows(process=pid_1c):
@@ -662,26 +497,56 @@ def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 2.5) -> bool:
     return False
 
 
-def grab_areas_from_open_invoice_doc(win_1c, log_cb) -> dict:
-    areas = {}
+def switch_to_open_invoice_tab(win_1c, invoice_number: str) -> bool:
+    """Если открыта «Печать документа», переключается на соседнюю вкладку «Счет покупателю 0000-XXXXXX»."""
+    num_clean = str(invoice_number).strip().lstrip("0") or "0"
+    num_pat = re.compile(rf"(?:^|[-0]){re.escape(num_clean)}(?:\b|\s|от)")
+    try:
+        win_rect = win_1c.rectangle()
+        for el in win_1c.descendants():
+            txt = (el.window_text() or "").strip().lower()
+            if "счет покупателю" in txt and num_pat.search(txt):
+                r = el.rectangle()
+                if r.width() > 20 and r.height() > 10 and r.top < win_rect.top + 95:
+                    el.click_input()
+                    time.sleep(0.7)
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def grab_doc_extras_from_open_invoice(win_1c, log_cb) -> dict:
+    """Забирает из открытого документа «Счет покупателю» колонку «Площадь» и поле ИГК."""
+    result = {"areas": {}, "igk": ""}
     try:
         win_rect = win_1c.rectangle()
         add_btn_bottom = None
+
         for el in win_1c.descendants():
-            if (el.window_text() or "").strip().lower() == "добавить":
-                r = el.rectangle()
-                if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 150:
-                    add_btn_bottom = r.bottom
-                    break
+            txt = get_el_text_all(el)
+            if not txt:
+                continue
+            r = el.rectangle()
+            if r.width() < 15 or r.height() < 10:
+                continue
+            low = txt.lower().strip()
+            if low == "добавить" and r.top > win_rect.top + 150:
+                add_btn_bottom = r.bottom
+            if not result["igk"] and win_rect.top + 70 < r.top < win_rect.top + 380:
+                m_igk = re.search(r"\b(\d{20,25})\b", txt)
+                if m_igk:
+                    result["igk"] = m_igk.group(1)
+
+        if result["igk"]:
+            log_cb(f"Подтянули ИГК из 1С: {result['igk']}")
 
         if add_btn_bottom is None:
-            return areas
+            return result
 
         clear_clipboard()
         time.sleep(0.15)
-        abs_x = win_rect.left + int(win_rect.width() * 0.25)
-        abs_y = add_btn_bottom + 42
-        mouse.click(coords=(abs_x, abs_y))
+        mouse.click(coords=(win_rect.left + int(win_rect.width() * 0.25), add_btn_bottom + 42))
         time.sleep(0.25)
         press_ctrl_key(0x41)
         time.sleep(0.25)
@@ -690,7 +555,7 @@ def grab_areas_from_open_invoice_doc(win_1c, log_cb) -> dict:
 
         txt = get_clipboard_text()
         if not txt.strip():
-            return areas
+            return result
 
         area_col_idx = None
         for line in txt.splitlines():
@@ -707,31 +572,28 @@ def grab_areas_from_open_invoice_doc(win_1c, log_cb) -> dict:
                 if area_col_idx is not None and area_col_idx < len(cols):
                     val = parse_number(cols[area_col_idx])
                     if val > 0:
-                        areas[row_num] = val
+                        result["areas"][row_num] = val
                 elif len(cols) >= 4 and looks_like_number(cols[3]):
                     val = parse_number(cols[3])
                     if val > 0:
-                        areas[row_num] = val
+                        result["areas"][row_num] = val
 
-        if areas:
-            log_cb(f"Подтянули «Площадь» из документа 1С ({len(areas)} поз.).")
+        if result["areas"]:
+            log_cb(f"Подтянули «Площадь» из документа 1С ({len(result['areas'])} поз.).")
     except Exception:
         pass
-    return areas
+    return result
 
 
 def focus_list_search_box_and_filter(win_1c, search_query: str, log_cb):
     win_rect = win_1c.rectangle()
-    toolbar_top = None
-    toolbar_bottom = None
-
+    toolbar_top = toolbar_bottom = None
     try:
         for el in win_1c.descendants():
             if (el.window_text() or "").strip().lower() == "создать":
                 r = el.rectangle()
                 if r.width() > 10 and r.top > win_rect.top + 50:
-                    toolbar_top = r.top
-                    toolbar_bottom = r.bottom
+                    toolbar_top, toolbar_bottom = r.top, r.bottom
                     break
     except Exception:
         pass
@@ -741,9 +603,7 @@ def focus_list_search_box_and_filter(win_1c, search_query: str, log_cb):
         candidates = []
         for el in win_1c.descendants(control_type="Edit"):
             r = el.rectangle()
-            if r.width() < 40 or r.height() < 12:
-                continue
-            if r.top < win_rect.top + 60:
+            if r.width() < 40 or r.height() < 12 or r.top < win_rect.top + 60:
                 continue
             name = (el.window_text() or "").lower()
             is_right = r.left > (win_rect.left + win_rect.width() * 0.40)
@@ -831,9 +691,7 @@ def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_
                 if r.width() > 300 and r.height() > 120 and r.top > win_rect.top + 80:
                     abs_x = r.left + min(180, r.width() // 4)
                     for offset_y in (42, 58, 30):
-                        abs_y = r.top + offset_y
-                        log_cb(f"Кликаем в 1-ю строку таблицы (y={abs_y})...")
-                        mouse.double_click(coords=(abs_x, abs_y))
+                        mouse.double_click(coords=(abs_x, r.top + offset_y))
                         time.sleep(2.0)
                         if has_exact_invoice_doc_open(win_1c, invoice_number):
                             return True
@@ -843,20 +701,16 @@ def open_filtered_invoice_row(win_1c, invoice_number: str, toolbar_bottom, used_
     base_y = toolbar_bottom if toolbar_bottom else (win_rect.top + int(win_rect.height() * 0.14))
     abs_x = win_rect.left + int(win_rect.width() * 0.22)
     for dy in (65, 90, 115):
-        abs_y = base_y + dy
-        log_cb(f"Пробуем открыть строку (y={abs_y})...")
-        mouse.double_click(coords=(abs_x, abs_y))
+        mouse.double_click(coords=(abs_x, base_y + dy))
         time.sleep(2.0)
         if has_exact_invoice_doc_open(win_1c, invoice_number):
             return True
-
     return False
 
 
 def find_document_print_button(win_1c):
     win_rect = win_1c.rectangle()
     doc_toolbar_y = None
-
     try:
         for el in win_1c.descendants():
             if (el.window_text() or "").strip().lower() == "провести и закрыть":
@@ -867,8 +721,7 @@ def find_document_print_button(win_1c):
     except Exception:
         pass
 
-    best_btn = None
-    best_dist = 999999
+    best_btn, best_dist = None, 999999
     try:
         for el in win_1c.descendants():
             txt = (el.window_text() or "").strip().lower()
@@ -877,11 +730,9 @@ def find_document_print_button(win_1c):
                 if r.width() > 20 and r.height() > 10 and r.top > win_rect.top + 50:
                     dist = abs(r.top - doc_toolbar_y) if doc_toolbar_y is not None else r.top
                     if dist < best_dist:
-                        best_dist = dist
-                        best_btn = el
+                        best_dist, best_btn = dist, el
     except Exception:
         pass
-
     return best_btn
 
 
@@ -906,9 +757,7 @@ def click_document_print_77(win_1c, log_cb):
 
     if not has_open_print_form(win_1c):
         log_cb("Выбираем 4-й пункт меню («Счёт в формате 7.7»)...")
-        item_x = btn_rect.left + 65
-        item_y = btn_rect.bottom + int(btn_h * 3.85)
-        mouse.click(coords=(item_x, item_y))
+        mouse.click(coords=(btn_rect.left + 65, btn_rect.bottom + int(btn_h * 3.85)))
         for _ in range(10):
             time.sleep(0.5)
             if has_open_print_form(win_1c):
@@ -916,7 +765,7 @@ def click_document_print_77(win_1c, log_cb):
                 return
 
     if not has_open_print_form(win_1c):
-        log_cb("Повторно открываем «Печать» и выбираем «Счёт в формате 7.7» стрелками...")
+        log_cb("Повторно открываем «Печать» и выбираем стрелками...")
         print_btn.click_input()
         time.sleep(0.7)
         for _ in range(4):
@@ -931,7 +780,7 @@ def click_document_print_77(win_1c, log_cb):
 
     raise RuntimeError(
         "Не удалось открыть печатную форму «Счёт в формате 7.7».\n"
-        "Попробуй открыть её в 1С вручную и включить кнопку «Печатная форма уже открыта»."
+        "Открой её в 1С вручную и включи кнопку «Печатная форма уже открыта»."
     )
 
 
@@ -939,18 +788,14 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
     log_cb("Ищем окно 1С:Предприятие...")
     win_1c = find_1c_window()
     just_launched = False
-    areas_map = {}
+    extras = {"areas": {}, "igk": ""}
 
     if win_1c is None:
         if use_open_form:
-            raise RuntimeError(
-                "Окно 1С:Предприятие не найдено на этом компьютере.\n"
-                "Открой 1С и печатную форму счёта на этом же ПК."
-            )
+            raise RuntimeError("Окно 1С:Предприятие не найдено на этом компьютере.")
         log_cb("Запускаем 1С и входим в базу...")
         exe_1c = resolve_1c_exe(cfg.get("1c_exe", ""))
-        cmd = f'"{exe_1c}" {cfg["1c_base_args"]}'
-        subprocess.Popen(cmd, shell=True)
+        subprocess.Popen(f'"{exe_1c}" {cfg["1c_base_args"]}', shell=True)
         just_launched = True
         for _ in range(45):
             time.sleep(2.0)
@@ -987,35 +832,27 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
             toolbar_bottom, used_ctrl_f = focus_list_search_box_and_filter(win_1c, full_search, log_cb)
 
             if not open_filtered_invoice_row(win_1c, invoice_number, toolbar_bottom, used_ctrl_f, log_cb):
-                raise RuntimeError(
-                    f"В списке «Счета покупателям» не удалось открыть счёт {full_search}.\n"
-                    "Проверь номер счёта и период отбора в 1С."
-                )
+                raise RuntimeError(f"В списке «Счета покупателям» не удалось открыть счёт {full_search}.")
             time.sleep(1.0)
 
-        areas_map = grab_areas_from_open_invoice_doc(win_1c, log_cb)
+        extras = grab_doc_extras_from_open_invoice(win_1c, log_cb)
         click_document_print_77(win_1c, log_cb)
 
     log_cb("Копируем таблицу из печатной формы (Ctrl+A → Ctrl+C)...")
     rect = win_1c.rectangle()
     raw_text = ""
-
     for fx, fy in ((0.45, 0.55), (0.35, 0.62)):
         clear_clipboard()
         time.sleep(0.2)
         try:
-            abs_x = int(rect.left + rect.width() * fx)
-            abs_y = int(rect.top + rect.height() * fy)
-            mouse.click(coords=(abs_x, abs_y))
+            mouse.click(coords=(int(rect.left + rect.width() * fx), int(rect.top + rect.height() * fy)))
             time.sleep(0.4)
         except Exception:
             pass
-
         press_ctrl_key(0x41)
         time.sleep(0.5)
         press_ctrl_key(0x43)
         time.sleep(0.9)
-
         raw_text = get_clipboard_text()
         if raw_text.strip():
             break
@@ -1031,17 +868,23 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
     m_inv = re.search(r"Сч[её]т\s*(?:на\s+оплату\s*)?№\s*0*(\d+)", raw_text, flags=re.IGNORECASE)
     if m_inv and m_inv.group(1) != num_clean:
         raise RuntimeError(
-            f"1С открыла не тот счёт: в печатной форме № {m_inv.group(1)}, а нужен № {num_clean}.\n"
-            "Отмена, чтобы не испортить спецификацию."
+            f"1С открыла не тот счёт: в печатной форме № {m_inv.group(1)}, а нужен № {num_clean}."
         )
 
-    return raw_text, areas_map
+    # Если печатная форма уже была открыта — заглядываем в соседнюю вкладку документа за Площадью и ИГК
+    if use_open_form and not extras["areas"]:
+        if switch_to_open_invoice_tab(win_1c, invoice_number):
+            extras = grab_doc_extras_from_open_invoice(win_1c, log_cb)
+
+    return raw_text, extras
 
 
 def parse_invoice_clipboard_text(raw_text: str) -> dict:
     invoice_date = datetime.now().strftime("%d.%m.%Y")
     items = []
     totals = {"no_nds": 0.0, "nds": 0.0, "with_nds": 0.0}
+    vat_rate = "22"
+    igk_from_text = ""
 
     date_re = re.compile(r"от\s+(\d{1,2})\s+([а-яА-Я]+)\s+(\d{4})", re.IGNORECASE)
     months = {
@@ -1059,10 +902,12 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
 
         m = date_re.search(joined)
         if m:
-            day = m.group(1).zfill(2)
-            mon = months.get(m.group(2).lower(), "01")
-            year = m.group(3)
-            invoice_date = f"{day}.{mon}.{year}"
+            invoice_date = f"{m.group(1).zfill(2)}.{months.get(m.group(2).lower(), '01')}.{m.group(3)}"
+
+        if not igk_from_text and ("игк" in joined.lower() or "основание" in joined.lower()):
+            m_igk = re.search(r"\b(\d{20,25})\b", joined)
+            if m_igk:
+                igk_from_text = m_igk.group(1)
 
         if ("Товар" in joined or "Наименование" in joined) and "Цена" in joined:
             in_table = True
@@ -1076,28 +921,19 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
             if cells[0].isdigit() and len(cells) >= 6:
                 board_name, ps_num = split_board_and_ps(cells[1])
                 if looks_like_number(cells[2]) and not looks_like_number(cells[3]):
-                    qty_val = parse_number(cells[2])
-                    unit_val = cells[3]
+                    qty_val, unit_val = parse_number(cells[2]), cells[3]
                 else:
-                    unit_val = cells[2]
-                    qty_val = parse_number(cells[3])
-
-                price_val = parse_number(cells[4])
-                sum_val = parse_number(cells[5])
-                term_val = cells[6] if len(cells) >= 7 else ""
-
+                    unit_val, qty_val = cells[2], parse_number(cells[3])
                 items.append({
-                    "raw_name": cells[1],
-                    "name": board_name,
-                    "ps_num": ps_num,
-                    "unit": unit_val,
-                    "qty": qty_val,
-                    "price": price_val,
-                    "sum": sum_val,
-                    "term": term_val,
+                    "raw_name": cells[1], "name": board_name, "ps_num": ps_num,
+                    "unit": unit_val, "qty": qty_val, "price": parse_number(cells[4]),
+                    "sum": parse_number(cells[5]), "term": cells[6] if len(cells) >= 7 else "",
                 })
 
         if "НДС" in joined and totals["nds"] == 0.0 and "без НДС" not in joined.lower():
+            m_vat = re.search(r"НДС\s*\(?(\d{1,2})\s*%", joined, flags=re.IGNORECASE)
+            if m_vat:
+                vat_rate = m_vat.group(1)
             totals["nds"] = parse_number(cells[-1])
         elif "Всего к оплате" in joined:
             totals["with_nds"] = parse_number(cells[-1])
@@ -1105,44 +941,41 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
     if totals["no_nds"] == 0.0 and items:
         totals["no_nds"] = round(sum(i["sum"] for i in items), 2)
     if totals["nds"] == 0.0 and totals["no_nds"] > 0:
-        totals["nds"] = round(totals["no_nds"] * 0.22, 2)
+        totals["nds"] = round(totals["no_nds"] * (int(vat_rate) / 100.0), 2)
     if totals["with_nds"] == 0.0 and totals["no_nds"] > 0:
         totals["with_nds"] = round(totals["no_nds"] + totals["nds"], 2)
 
-    return {"date": invoice_date, "items": items, "totals": totals}
+    return {
+        "date": invoice_date,
+        "year": invoice_date.split(".")[-1] if "." in invoice_date else str(datetime.now().year),
+        "vat_rate": vat_rate,
+        "igk": igk_from_text,
+        "items": items,
+        "totals": totals,
+    }
 
 
 # =============================================================================
-# ПОИСК БЛАНКА И НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ"
+# ПОИСК БЛАНКА И НИЖНЕЙ СТРОКИ В «РАСЧЕТЫ»
 # =============================================================================
 def extract_board_tokens(board_name: str) -> list:
     stop_words = {"печ.платы", "печатные", "платы", "плата", "ps", "пп", "шт"}
-    raw_tokens = re.split(r"[\s()\[\],;]+", board_name)
-    tokens = []
-    for t in raw_tokens:
-        clean = t.strip().lower()
-        if len(clean) >= 3 and clean not in stop_words:
-            tokens.append(clean)
-    return tokens
+    return [
+        t.strip().lower() for t in re.split(r"[\s()\[\],;]+", board_name)
+        if len(t.strip()) >= 3 and t.strip().lower() not in stop_words
+    ]
 
 
 def is_ignored_calc_filename(fname: str) -> bool:
     low = fname.lower()
-    if low.startswith("~$"):
-        return True
-    for bad in ("счет", "счёт", "расчет", "расчёт", "прайс"):
-        if bad in low:
-            return True
-    return False
+    return low.startswith("~$") or any(b in low for b in ("счет", "счёт", "расчет", "расчёт", "прайс"))
 
 
 def find_invoice_calc_folder(calc_folder: str, invoice_num: str) -> str:
     if not calc_folder or not os.path.isdir(calc_folder) or not invoice_num:
         return ""
-
     num_clean = str(invoice_num).strip().lstrip("0") or "0"
     pat = re.compile(rf"(?:^|[^0-9])0*{re.escape(num_clean)}(?:[^0-9]|$)")
-
     search_roots = [calc_folder]
     try:
         for entry in os.listdir(calc_folder):
@@ -1153,7 +986,6 @@ def find_invoice_calc_folder(calc_folder: str, invoice_num: str) -> str:
                 search_roots.append(sub)
     except Exception:
         pass
-
     for root_dir in search_roots[1:]:
         try:
             for entry in os.listdir(root_dir):
@@ -1162,7 +994,6 @@ def find_invoice_calc_folder(calc_folder: str, invoice_num: str) -> str:
                     return sub
         except Exception:
             pass
-
     return ""
 
 
@@ -1172,11 +1003,7 @@ def extract_6_tech_cells_from_rows(rows: list) -> list:
         joined = " ".join(str(v or "").lower() for v in row)
         if "маска" in joined and ("сло" in joined or "покр" in joined or "марк" in joined):
             if r + 1 < len(rows):
-                start_col = 0
-                for c, val in enumerate(row):
-                    if "сло" in str(val or "").lower():
-                        start_col = c
-                        break
+                start_col = next((c for c, val in enumerate(row) if "сло" in str(val or "").lower()), 0)
                 data_row = rows[r + 1]
                 out = []
                 for c in range(start_col, start_col + 6):
@@ -1185,13 +1012,11 @@ def extract_6_tech_cells_from_rows(rows: list) -> list:
                         v = int(v)
                     out.append("" if v is None else v)
                 return out
-
     for r in range(len(rows) - 1, -1, -1):
         non_empty = [v for v in rows[r] if v is not None and str(v).strip() != ""]
         if len(non_empty) >= 3:
             cleaned = [int(v) if isinstance(v, float) and v.is_integer() else v for v in non_empty]
             return (cleaned + [""] * 6)[:6]
-
     return [""] * 6
 
 
@@ -1213,56 +1038,37 @@ def read_tech_cells_from_excel(filepath: str) -> list:
 def pick_best_blank_in_folder(folder: str, tokens: list, item_idx: int = 0) -> str:
     if not folder or not os.path.isdir(folder):
         return ""
-
     files = [
         f for f in os.listdir(folder)
         if f.lower().endswith((".xls", ".xlsx")) and not is_ignored_calc_filename(f)
     ]
-
-    best_file = ""
-    best_hits = 0
+    best_file, best_hits = "", 0
     for fname in files:
-        low_name = fname.lower()
-        hits = sum(1 for tok in tokens if tok in low_name)
+        hits = sum(1 for tok in tokens if tok in fname.lower())
         if hits > best_hits:
-            best_hits = hits
-            best_file = os.path.join(folder, fname)
+            best_hits, best_file = hits, os.path.join(folder, fname)
     if best_file:
         return best_file
-
     if item_idx > 0:
         for ext in (".xls", ".xlsx"):
-            exact_name = f"{item_idx}{ext}"
             for fname in files:
-                if fname.lower() == exact_name:
+                if fname.lower() == f"{item_idx}{ext}":
                     return os.path.join(folder, fname)
-
     return ""
 
 
-def find_calc_bottom_row(
-    calc_folder: str,
-    board_name: str,
-    raw_name: str = "",
-    invoice_num: str = "",
-    item_idx: int = 0,
-) -> list:
+def find_calc_bottom_row(calc_folder: str, board_name: str, raw_name: str = "", invoice_num: str = "", item_idx: int = 0) -> list:
     if not calc_folder or not os.path.isdir(calc_folder):
         return [""] * 6
-
     tokens = extract_board_tokens(board_name + " " + raw_name)
     target_file = ""
-
     inv_folder = find_invoice_calc_folder(calc_folder, invoice_num)
     if inv_folder:
         target_file = pick_best_blank_in_folder(inv_folder, tokens, item_idx=item_idx)
-
     if not target_file and tokens:
         target_file = pick_best_blank_in_folder(calc_folder, tokens, item_idx=0)
-
     if not target_file:
         return [""] * 6
-
     try:
         return read_tech_cells_from_excel(target_file)
     except Exception:
@@ -1270,23 +1076,14 @@ def find_calc_bottom_row(
 
 
 # =============================================================================
-# СБОРКА ИТОГОВОГО EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ
+# СБОРКА EXCEL-ФАЙЛА СПЕЦИФИКАЦИИ
 # =============================================================================
-def build_specification(
-    cfg: dict,
-    client_name: str,
-    calc_folder_name: str,
-    invoice_num: str,
-    new_spec_num: int,
-    use_open_form: bool,
-    from_clipboard_only: bool,
-    log_cb,
-) -> str:
+def build_specification(cfg: dict, client_name: str, calc_folder_name: str, invoice_num: str,
+                        new_spec_num: int, use_open_form: bool, from_clipboard_only: bool, log_cb) -> str:
     spec_folder = os.path.join(cfg["specs_root"], client_name)
     calc_folder = (
         os.path.join(cfg["calc_root"], calc_folder_name)
-        if calc_folder_name and calc_folder_name != "(не выбрана)"
-        else ""
+        if calc_folder_name and calc_folder_name != "(не выбрана)" else ""
     )
 
     log_cb("Ищем последнюю спецификацию и делаем копию...")
@@ -1295,25 +1092,25 @@ def build_specification(
     new_file = os.path.join(spec_folder, f"сп.{new_spec_num} сч.{invoice_num}{ext}")
     shutil.copy2(last_file, new_file)
 
-    areas_map = {}
+    extras = {"areas": {}, "igk": ""}
     if from_clipboard_only:
         log_cb("Читаем таблицу из буфера обмена...")
         raw_text = get_clipboard_text()
         if not raw_text.strip():
-            raise RuntimeError(
-                "Буфер обмена пуст. Сначала скопируй «Счёт в формате 7.7» в 1С (Ctrl+A, Ctrl+C)."
-            )
+            raise RuntimeError("Буфер обмена пуст. Скопируй «Счёт в формате 7.7» в 1С (Ctrl+A, Ctrl+C).")
     else:
-        raw_text, areas_map = grab_text_from_1c_print_form(cfg, invoice_num, use_open_form, log_cb)
+        raw_text, extras = grab_text_from_1c_print_form(cfg, invoice_num, use_open_form, log_cb)
 
     log_cb("Разбираем строки счёта...")
     inv = parse_invoice_clipboard_text(raw_text)
     items = inv["items"]
     if not items:
-        raise RuntimeError(
-            "Не удалось распознать товары в скопированном тексте 1С.\n"
-            "Убедись, что открыта печатная форма «Счёт в формате 7.7»."
-        )
+        raise RuntimeError("Не удалось распознать товары в скопированном тексте 1С.")
+
+    areas_map = extras.get("areas", {})
+    final_igk = extras.get("igk") or inv.get("igk", "")
+    inv_year = inv["year"]
+    vat_rate = inv["vat_rate"]
 
     inv_calc_dir = find_invoice_calc_folder(calc_folder, invoice_num)
     if inv_calc_dir:
@@ -1327,17 +1124,14 @@ def build_specification(
         wb = excel.Workbooks.Open(new_file)
         ws = wb.Sheets(1)
 
+        # 1. Обновляем "Приложение № ..." в строках 1-3
         for r in range(1, 4):
             for c in range(1, 17):
                 val = ws.Cells(r, c).Value
                 if isinstance(val, str) and "приложение" in val.lower():
-                    ws.Cells(r, c).Value = re.sub(
-                        r"(Приложение\s*№\s*)\d+",
-                        rf"\g<1>{new_spec_num}",
-                        val,
-                        flags=re.IGNORECASE,
-                    )
+                    ws.Cells(r, c).Value = re.sub(r"(Приложение\s*№\s*)\d+", rf"\g<1>{new_spec_num}", val, flags=re.IGNORECASE)
 
+        # 2. Обновляем "Спецификация № ... от <дата счёта> г."
         spec_title_updated = False
         for r in range(2, 7):
             for c in range(1, 5):
@@ -1351,31 +1145,26 @@ def build_specification(
         if not spec_title_updated:
             ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
 
+        # 3. Заголовок таблицы и порядок столбцов D / E
         header_row = 8
         for r in range(5, 13):
-            b_val = str(ws.Cells(r, 2).Value or "").lower()
-            if "наименование" in b_val:
+            if "наименование" in str(ws.Cells(r, 2).Value or "").lower():
                 header_row = r
                 break
         start_row = header_row + 1
 
         d_hdr = str(ws.Cells(header_row, 4).Value or "").lower()
         e_hdr = str(ws.Cells(header_row, 5).Value or "").lower()
-        if "ед" in d_hdr and "срок" in e_hdr:
-            unit_col, term_col = 4, 5
-        else:
-            term_col, unit_col = 4, 5
+        unit_col, term_col = (4, 5) if ("ед" in d_hdr and "срок" in e_hdr) else (5, 4)
 
+        # 4. Находим строку "Итого" по столбцам A..G
         total_row = start_row
         while total_row < 150:
-            row_text = " ".join(str(ws.Cells(total_row, c).Value or "") for c in range(1, 8)).lower()
-            if "итого" in row_text:
+            if "итого" in " ".join(str(ws.Cells(total_row, c).Value or "") for c in range(1, 8)).lower():
                 break
             total_row += 1
 
-        existing_rows = total_row - start_row
-        needed_rows = len(items)
-
+        existing_rows, needed_rows = total_row - start_row, len(items)
         if needed_rows > existing_rows:
             for _ in range(needed_rows - existing_rows):
                 ws.Rows(start_row + 1).Insert()
@@ -1384,6 +1173,7 @@ def build_specification(
             for _ in range(existing_rows - needed_rows):
                 ws.Rows(start_row + needed_rows).Delete()
 
+        # 5. Заполняем позиции (A-O)
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
             ws.Cells(r, 1).Value = idx
@@ -1396,40 +1186,53 @@ def build_specification(
             ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
             ws.Cells(r, 9).Value = areas_map.get(idx, "")
 
-            tech = find_calc_bottom_row(
-                calc_folder,
-                item["name"],
-                item["raw_name"],
-                invoice_num=invoice_num,
-                item_idx=idx,
-            )
+            tech = find_calc_bottom_row(calc_folder, item["name"], item["raw_name"], invoice_num=invoice_num, item_idx=idx)
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
 
+        # 6. Итоги, ставка НДС, суммы прописью, ИГК и год в подписях
         new_total_row = start_row + needed_rows
-        for r in range(new_total_row, new_total_row + 12):
+        for r in range(new_total_row, new_total_row + 22):
             ag_low = " ".join(str(ws.Cells(r, c).Value or "") for c in range(1, 8)).lower()
             ab_low = " ".join(str(ws.Cells(r, c).Value or "") for c in range(1, 3)).lower()
+
             if "итого с ндс" in ag_low:
                 ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["with_nds"], True)
             elif "итого без ндс" in ag_low or ("итого" in ag_low and "ндс" not in ag_low):
                 ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["no_nds"], True)
             elif "в том числе ндс" in ab_low:
+                for c in (1, 2):
+                    v = ws.Cells(r, c).Value
+                    if isinstance(v, str) and "ндс" in v.lower():
+                        ws.Cells(r, c).Value = re.sub(r"\(\d{1,2}%\)", f"({vat_rate}%)", v)
                 ws.Cells(r, 3).Value = amount_in_words(inv["totals"]["nds"])
             elif "сумма" in ab_low:
                 ws.Cells(r, 3).Value = amount_in_words(inv["totals"]["with_nds"])
             elif "ндс" in ag_low and "итого" not in ag_low:
+                for c in range(1, 8):
+                    v = ws.Cells(r, c).Value
+                    if isinstance(v, str) and "ндс" in v.lower():
+                        ws.Cells(r, c).Value = re.sub(r"\(\d{1,2}%\)", f"({vat_rate}%)", v)
                 ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["nds"], True)
+
+            # Обновляем ИГК (если найден в 1С) и год в подписях (например, 2025 г. -> 2026 г.)
+            for c in range(1, 16):
+                v = ws.Cells(r, c).Value
+                if not isinstance(v, str):
+                    continue
+                if final_igk and ("игк" in v.lower() or "гк №" in v.lower()):
+                    ws.Cells(r, c).Value = f"ИГК {final_igk}"
+                elif re.search(r"20\d{2}\s*г\.?", v) and "договор" not in v.lower():
+                    ws.Cells(r, c).Value = re.sub(r"20\d{2}(\s*г\.?)", rf"{inv_year}\1", v)
 
         wb.Save()
     finally:
         pythoncom.CoUninitialize()
-
     return new_file
 
 
 # =============================================================================
-# ПРИЛОЖЕНИЕ С 7 ТЕМАМИ, КОМПАКТНЫМ ОКНОМ И ЗАКРЕПЛЁННОЙ КНОПКОЙ СБОРКИ ВНИЗУ
+# ПРИЛОЖЕНИЕ (КОМПАКТНОЕ ОКНО, ЗАКРЕПЛЁННЫЕ КНОПКИ ВНИЗУ, ЯРКАЯ КНОПКА 1С)
 # =============================================================================
 class SpecBuilderApp(ctk.CTk):
     def __init__(self):
@@ -1445,24 +1248,18 @@ class SpecBuilderApp(ctk.CTk):
         ctk.set_default_color_theme("green")
 
         self.title(f'{CFG["company_name"]} — Сборка спецификаций')
-
-        # Удобный размер окна по центру экрана — всё влезает сразу без прокрутки и растягивания
         win_w, win_h = 1160, 650
-        scr_w = self.winfo_screenwidth()
-        scr_h = self.winfo_screenheight()
-        pos_x = max(20, (scr_w - win_w) // 2)
-        pos_y = max(20, (scr_h - win_h) // 2 - 20)
+        pos_x = max(20, (self.winfo_screenwidth() - win_w) // 2)
+        pos_y = max(20, (self.winfo_screenheight() - win_h) // 2 - 20)
         self.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
         self.minsize(1000, 600)
 
-        self.all_clients = []
-        self.all_calc_folders = []
+        self.all_clients, self.all_calc_folders = [], []
         self.selected_client = None
         self.selected_calc_folder = "(не выбрана)"
         self.calc_picker_open = False
         self.use_open_form = False
-        self.client_buttons = {}
-        self.calc_buttons = {}
+        self.client_buttons, self.calc_buttons = {}, {}
 
         self._load_folders()
         self._build_layout()
@@ -1480,7 +1277,6 @@ class SpecBuilderApp(ctk.CTk):
         except Exception as e:
             messagebox.showerror("Нет доступа к папке Спецификаций", f"{CFG['specs_root']}\n\n{e}")
             self.all_clients = []
-
         try:
             self.all_calc_folders = sorted(
                 d for d in os.listdir(CFG["calc_root"])
@@ -1495,20 +1291,15 @@ class SpecBuilderApp(ctk.CTk):
         self.grid_columnconfigure(2, weight=0)
         self.grid_rowconfigure(1, weight=1)
 
-        # === ВЕРХНЯЯ ШАПКА ===
+        # === ШАПКА ===
         self.header = ctk.CTkFrame(self, height=58, corner_radius=0, border_width=1)
         self.header.grid(row=0, column=0, columnspan=3, sticky="ew")
         self.header.grid_columnconfigure(1, weight=1)
 
         brand_frame = ctk.CTkFrame(self.header, fg_color="transparent")
         brand_frame.grid(row=0, column=0, padx=16, pady=8, sticky="w")
-
         self.logo_badge = ctk.CTkLabel(
-            brand_frame,
-            text="ПП",
-            width=38,
-            height=38,
-            corner_radius=10,
+            brand_frame, text="ПП", width=38, height=38, corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
         )
         self.logo_badge.pack(side="left", padx=(0, 10))
@@ -1516,15 +1307,11 @@ class SpecBuilderApp(ctk.CTk):
         title_box = ctk.CTkFrame(brand_frame, fg_color="transparent")
         title_box.pack(side="left")
         self.company_lbl = ctk.CTkLabel(
-            title_box,
-            text=CFG["company_name"],
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            title_box, text=CFG["company_name"], font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold")
         )
         self.company_lbl.pack(anchor="w")
         self.subtitle_lbl = ctk.CTkLabel(
-            title_box,
-            text="Автоматическая сборка спецификаций (1С + Расчёты)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            title_box, text="Автоматическая сборка спецификаций (1С + Расчёты)", font=ctk.CTkFont(family="Segoe UI", size=11)
         )
         self.subtitle_lbl.pack(anchor="w")
 
@@ -1532,13 +1319,8 @@ class SpecBuilderApp(ctk.CTk):
         right_header.grid(row=0, column=2, padx=16, pady=8, sticky="e")
 
         self.theme_menu = ctk.CTkOptionMenu(
-            right_header,
-            values=list(THEMES.keys()),
-            command=self._on_theme_change,
-            width=170,
-            height=32,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            right_header, values=list(THEMES.keys()), command=self._on_theme_change,
+            width=170, height=32, corner_radius=8, font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
         )
         self.theme_menu.set(self.current_theme_name)
         self.theme_menu.pack(side="left", padx=(0, 10))
@@ -1548,13 +1330,11 @@ class SpecBuilderApp(ctk.CTk):
         self.user_dot = ctk.CTkLabel(self.user_badge, text="●", font=ctk.CTkFont(size=12))
         self.user_dot.pack(side="left", padx=(10, 6), pady=6)
         self.user_lbl = ctk.CTkLabel(
-            self.user_badge,
-            text=CFG["employee_name"],
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            self.user_badge, text=CFG["employee_name"], font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         )
         self.user_lbl.pack(side="left", padx=(0, 12), pady=6)
 
-        # === ЛЕВАЯ ПАНЕЛЬ НАВИГАЦИИ ===
+        # === ЛЕВОЕ МЕНЮ ===
         self.left_nav = ctk.CTkFrame(self, width=180, corner_radius=0, border_width=1)
         self.left_nav.grid(row=1, column=0, sticky="ns")
         self.left_nav.grid_propagate(False)
@@ -1563,57 +1343,35 @@ class SpecBuilderApp(ctk.CTk):
         self.nav_title.pack(anchor="w", padx=16, pady=(14, 6))
 
         self.nav_active_btn = ctk.CTkButton(
-            self.left_nav,
-            text="📄  Спецификация",
-            anchor="w",
-            height=38,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            self.left_nav, text="📄  Спецификация", anchor="w", height=38, font=ctk.CTkFont(size=13, weight="bold")
         )
         self.nav_active_btn.pack(fill="x", padx=12, pady=3)
 
         self.nav_spec_btn = ctk.CTkButton(
-            self.left_nav,
-            text="📁  Папка Спец.",
-            anchor="w",
-            height=36,
-            fg_color="transparent",
-            font=ctk.CTkFont(size=13),
-            command=self._open_selected_spec_folder,
+            self.left_nav, text="📁  Папка Спец.", anchor="w", height=36, fg_color="transparent",
+            font=ctk.CTkFont(size=13), command=self._open_selected_spec_folder,
         )
         self.nav_spec_btn.pack(fill="x", padx=12, pady=3)
 
         self.nav_calc_btn = ctk.CTkButton(
-            self.left_nav,
-            text="📊  Папка Расчёты",
-            anchor="w",
-            height=36,
-            fg_color="transparent",
-            font=ctk.CTkFont(size=13),
-            command=self._open_selected_calc_folder,
+            self.left_nav, text="📊  Папка Расчёты", anchor="w", height=36, fg_color="transparent",
+            font=ctk.CTkFont(size=13), command=self._open_selected_calc_folder,
         )
         self.nav_calc_btn.pack(fill="x", padx=12, pady=3)
 
         self.nav_reload_btn = ctk.CTkButton(
-            self.left_nav,
-            text="🔄  Обновить списки",
-            anchor="w",
-            height=36,
-            fg_color="transparent",
-            font=ctk.CTkFont(size=12),
-            command=self._reload_all_folders,
+            self.left_nav, text="🔄  Обновить списки", anchor="w", height=36, fg_color="transparent",
+            font=ctk.CTkFont(size=12), command=self._reload_all_folders,
         )
         self.nav_reload_btn.pack(fill="x", padx=12, pady=(12, 4))
 
         self.status_badge = ctk.CTkLabel(
-            self.left_nav,
-            text="● Готов к работе",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            wraplength=150,
-            justify="left",
+            self.left_nav, text="● Готов к работе", font=ctk.CTkFont(size=12, weight="bold"),
+            wraplength=150, justify="left",
         )
         self.status_badge.pack(side="bottom", anchor="w", padx=14, pady=14)
 
-        # === ЦЕНТРАЛЬНАЯ КОЛОНКА (ВЕРХ СКРОЛЛИТСЯ, НИЖНИЕ КНОПКИ ВСЕГДА НА ЭКРАНЕ) ===
+        # === ЦЕНТРАЛЬНАЯ КОЛОНКА ===
         self.center_container = ctk.CTkFrame(self, fg_color="transparent")
         self.center_container.grid(row=1, column=1, sticky="nsew", padx=12, pady=10)
         self.center_container.grid_columnconfigure(0, weight=1)
@@ -1623,81 +1381,49 @@ class SpecBuilderApp(ctk.CTk):
         self.center = ctk.CTkScrollableFrame(self.center_container, corner_radius=0)
         self.center.grid(row=0, column=0, sticky="nsew")
 
-        # --- Карточка 1: Фирма и компактная плашка папки в РАСЧЕТЫ ---
+        # Карточка 1
         self.card1 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card1.pack(fill="x", pady=(0, 10))
-
-        self.c1_title = ctk.CTkLabel(
-            self.card1, text="1. ФИРМА, ШАБЛОН И ПАПКА В «РАСЧЕТЫ»",
-            font=ctk.CTkFont(size=12, weight="bold"),
-        )
+        self.c1_title = ctk.CTkLabel(self.card1, text="1. ФИРМА, ШАБЛОН И ПАПКА В «РАСЧЕТЫ»", font=ctk.CTkFont(size=12, weight="bold"))
         self.c1_title.pack(anchor="w", padx=14, pady=(10, 4))
 
         firm_row = ctk.CTkFrame(self.card1, fg_color="transparent")
         firm_row.pack(fill="x", padx=14, pady=(0, 8))
-        self.selected_firm_lbl = ctk.CTkLabel(
-            firm_row, text="Выберите фирму в списке справа →",
-            font=ctk.CTkFont(size=16, weight="bold"),
-        )
+        self.selected_firm_lbl = ctk.CTkLabel(firm_row, text="Выберите фирму в списке справа →", font=ctk.CTkFont(size=16, weight="bold"))
         self.selected_firm_lbl.pack(side="left")
-
-        self.last_file_lbl = ctk.CTkLabel(
-            firm_row, text="Последний файл: —",
-            font=ctk.CTkFont(size=12),
-        )
+        self.last_file_lbl = ctk.CTkLabel(firm_row, text="Последний файл: —", font=ctk.CTkFont(size=12))
         self.last_file_lbl.pack(side="right")
 
         self.calc_bar = ctk.CTkFrame(self.card1, corner_radius=10, border_width=1)
         self.calc_bar.pack(fill="x", padx=14, pady=(0, 12))
-
         self.calc_bar_left = ctk.CTkFrame(self.calc_bar, fg_color="transparent")
         self.calc_bar_left.pack(side="left", fill="x", expand=True, padx=12, pady=6)
-
-        self.calc_title_lbl = ctk.CTkLabel(
-            self.calc_bar_left, text="Папка в «РАСЧЕТЫ»:", font=ctk.CTkFont(size=11),
-        )
+        self.calc_title_lbl = ctk.CTkLabel(self.calc_bar_left, text="Папка в «РАСЧЕТЫ»:", font=ctk.CTkFont(size=11))
         self.calc_title_lbl.pack(anchor="w")
-
-        self.calc_selected_lbl = ctk.CTkLabel(
-            self.calc_bar_left, text="(не выбрана)", font=ctk.CTkFont(size=13, weight="bold"),
-        )
+        self.calc_selected_lbl = ctk.CTkLabel(self.calc_bar_left, text="(не выбрана)", font=ctk.CTkFont(size=13, weight="bold"))
         self.calc_selected_lbl.pack(anchor="w")
 
         self.calc_toggle_btn = ctk.CTkButton(
-            self.calc_bar,
-            text="🔍 Изменить папку",
-            width=150,
-            height=32,
-            corner_radius=8,
-            border_width=1,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._toggle_calc_picker,
+            self.calc_bar, text="🔍 Изменить папку", width=150, height=32, corner_radius=8,
+            border_width=1, font=ctk.CTkFont(size=12, weight="bold"), command=self._toggle_calc_picker,
         )
         self.calc_toggle_btn.pack(side="right", padx=10, pady=6)
 
         self.calc_picker_frame = ctk.CTkFrame(self.card1, fg_color="transparent")
-
         self.calc_search_var = ctk.StringVar()
         self.calc_search_var.trace_add("write", lambda *_: self._render_calc_list(self.calc_search_var.get()))
         self.calc_search_entry = ctk.CTkEntry(
-            self.calc_picker_frame,
-            textvariable=self.calc_search_var,
-            placeholder_text="🔍 Введите название папки в «РАСЧЕТЫ» (по-русски или латиницей)...",
-            height=32,
+            self.calc_picker_frame, textvariable=self.calc_search_var,
+            placeholder_text="🔍 Введите название папки в «РАСЧЕТЫ» (по-русски или латиницей)...", height=32,
         )
         self.calc_search_entry.pack(fill="x", padx=14, pady=(0, 6))
-
         self.calc_scroll = ctk.CTkScrollableFrame(self.calc_picker_frame, height=105, corner_radius=8, border_width=1)
         self.calc_scroll.pack(fill="x", padx=14, pady=(0, 12))
 
-        # --- Карточка 2: Номер спецификации и счёт в 1С + яркая кнопка ---
+        # Карточка 2
         self.card2 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card2.pack(fill="x", pady=(0, 10))
-
-        self.c2_title = ctk.CTkLabel(
-            self.card2, text="2. ПАРАМЕТРЫ СПЕЦИФИКАЦИИ И СЧЁТА 1С",
-            font=ctk.CTkFont(size=12, weight="bold"),
-        )
+        self.c2_title = ctk.CTkLabel(self.card2, text="2. ПАРАМЕТРЫ СПЕЦИФИКАЦИИ И СЧЁТА 1С", font=ctk.CTkFont(size=12, weight="bold"))
         self.c2_title.pack(anchor="w", padx=14, pady=(10, 8))
 
         grid2 = ctk.CTkFrame(self.card2, fg_color="transparent")
@@ -1707,105 +1433,70 @@ class SpecBuilderApp(ctk.CTk):
 
         self.lbl_spec_num = ctk.CTkLabel(grid2, text="Новый № спецификации:", font=ctk.CTkFont(size=12))
         self.lbl_spec_num.grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
-
         self.spec_num_var = ctk.StringVar()
-        self.spec_entry = ctk.CTkEntry(
-            grid2, textvariable=self.spec_num_var, height=36, font=ctk.CTkFont(size=14, weight="bold")
-        )
+        self.spec_entry = ctk.CTkEntry(grid2, textvariable=self.spec_num_var, height=36, font=ctk.CTkFont(size=14, weight="bold"))
         self.spec_entry.grid(row=1, column=0, sticky="ew", padx=(0, 8))
 
         self.lbl_inv_num = ctk.CTkLabel(grid2, text="Номер счёта в 1С (дата подтянется из счёта):", font=ctk.CTkFont(size=12))
         self.lbl_inv_num.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 4))
-
         self.inv_var = ctk.StringVar()
-        self.inv_entry = ctk.CTkEntry(
-            grid2, textvariable=self.inv_var, placeholder_text="412", height=36, font=ctk.CTkFont(size=14, weight="bold")
-        )
+        self.inv_entry = ctk.CTkEntry(grid2, textvariable=self.inv_var, placeholder_text="412", height=36, font=ctk.CTkFont(size=14, weight="bold"))
         self.inv_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        # Яркая контрастная кнопка-переключатель
         self.open_form_btn = ctk.CTkButton(
-            self.card2,
-            text="⚡   Печатная форма «Счёт в формате 7.7» уже открыта в 1С  (нажмите, чтобы забрать сразу)",
-            height=44,
-            corner_radius=10,
-            border_width=2,
+            self.card2, height=44, corner_radius=10, border_width=2,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             command=self._toggle_open_form_mode,
         )
         self.open_form_btn.pack(fill="x", padx=14, pady=(0, 12))
 
-        # --- Карточка 3: Журнал выполнения ---
+        # Карточка 3
         self.card3 = ctk.CTkFrame(self.center, corner_radius=12, border_width=1)
         self.card3.pack(fill="both", expand=True, pady=(0, 4))
-
-        self.c3_title = ctk.CTkLabel(
-            self.card3, text="3. ХОД ВЫПОЛНЕНИЯ",
-            font=ctk.CTkFont(size=12, weight="bold"),
-        )
+        self.c3_title = ctk.CTkLabel(self.card3, text="3. ХОД ВЫПОЛНЕНИЯ", font=ctk.CTkFont(size=12, weight="bold"))
         self.c3_title.pack(anchor="w", padx=14, pady=(10, 4))
-
-        self.log_box = ctk.CTkTextbox(
-            self.card3, height=95, border_width=1, font=ctk.CTkFont(family="Consolas", size=12)
-        )
+        self.log_box = ctk.CTkTextbox(self.card3, height=95, border_width=1, font=ctk.CTkFont(family="Consolas", size=12))
         self.log_box.pack(fill="both", expand=True, padx=14, pady=(0, 12))
         self._append_log("Готово. Выберите фирму справа — папка в «РАСЧЕТЫ» подберётся автоматически.")
 
-        # --- НИЖНЯЯ ЗАКРЕПЛЁННАЯ ПАНЕЛЬ КНОПОК (ВСЕГДА ВИДНА БЕЗ ПРОКРУТКИ) ---
+        # Нижние закреплённые кнопки
         btn_row = ctk.CTkFrame(self.center_container, fg_color="transparent")
         btn_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         btn_row.grid_columnconfigure(0, weight=3)
         btn_row.grid_columnconfigure(1, weight=1)
 
         self.build_btn = ctk.CTkButton(
-            btn_row,
-            text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL",
-            height=46,
-            corner_radius=10,
+            btn_row, text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL", height=46, corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             command=lambda: self._on_start_build(from_clipboard_only=False),
         )
         self.build_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self.clip_btn = ctk.CTkButton(
-            btn_row,
-            text="📋 Вставить из буфера",
-            height=46,
-            corner_radius=10,
-            border_width=1,
+            btn_row, text="📋 Вставить из буфера", height=46, corner_radius=10, border_width=1,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self._on_start_build(from_clipboard_only=True),
         )
         self.clip_btn.grid(row=0, column=1, sticky="ew")
 
-        # === ПРАВАЯ ПАНЕЛЬ: СПРАВОЧНИК ФИРМ ===
+        # === ПРАВАЯ ПАНЕЛЬ ===
         self.right_panel = ctk.CTkFrame(self, width=290, corner_radius=0, border_width=1)
         self.right_panel.grid(row=1, column=2, sticky="ns")
         self.right_panel.grid_propagate(False)
 
         self.firms_header_lbl = ctk.CTkLabel(
-            self.right_panel,
-            text=f"Справочник фирм ({len(self.all_clients)})",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            self.right_panel, text=f"Справочник фирм ({len(self.all_clients)})", font=ctk.CTkFont(size=13, weight="bold")
         )
         self.firms_header_lbl.pack(anchor="w", padx=14, pady=(12, 6))
 
         self.search_var = ctk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._render_client_list(self.search_var.get()))
-        self.search_entry = ctk.CTkEntry(
-            self.right_panel,
-            textvariable=self.search_var,
-            placeholder_text="🔍 Поиск фирмы...",
-            height=34,
-        )
+        self.search_entry = ctk.CTkEntry(self.right_panel, textvariable=self.search_var, placeholder_text="🔍 Поиск фирмы...", height=34)
         self.search_entry.pack(fill="x", padx=14, pady=(0, 8))
 
         self.clients_scroll = ctk.CTkScrollableFrame(self.right_panel, fg_color="transparent")
         self.clients_scroll.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
-    # =========================================================================
-    # ЛОГИКА ПЕРЕКЛЮЧАТЕЛЕЙ И ТЕМ
-    # =========================================================================
     def _set_calc_picker_visible(self, visible: bool):
         self.calc_picker_open = visible
         if visible:
@@ -1830,18 +1521,14 @@ class SpecBuilderApp(ctk.CTk):
         if self.use_open_form:
             self.open_form_btn.configure(
                 text="✅   ПЕЧАТНАЯ ФОРМА «СЧЁТ В ФОРМАТЕ 7.7» УЖЕ ОТКРЫТА В 1С  —  ЗАБЕРЁМ СРАЗУ",
-                fg_color=t["toggle_on_bg"],
-                hover_color=t["toggle_on_hover"],
-                border_color=t["toggle_on_border"],
-                text_color=t["toggle_on_text"],
+                fg_color=t["toggle_on_bg"], hover_color=t["toggle_on_hover"],
+                border_color=t["toggle_on_border"], text_color=t["toggle_on_text"],
             )
         else:
             self.open_form_btn.configure(
                 text="⚡   Печатная форма «Счёт в формате 7.7» уже открыта в 1С  (нажмите, чтобы забрать сразу)",
-                fg_color=t["toggle_off_bg"],
-                hover_color=t["toggle_off_hover"],
-                border_color=t["toggle_off_border"],
-                text_color=t["toggle_off_text"],
+                fg_color=t["toggle_off_bg"], hover_color=t["toggle_off_hover"],
+                border_color=t["toggle_off_border"], text_color=t["toggle_off_text"],
             )
 
     def _on_theme_change(self, theme_name: str):
@@ -1855,7 +1542,6 @@ class SpecBuilderApp(ctk.CTk):
         t = THEMES[theme_name]
         self.t = t
         ctk.set_appearance_mode(t["mode"])
-
         if save:
             self.user_settings["theme"] = theme_name
             self.user_settings["folder_mapping"] = self.folder_mapping
@@ -1866,21 +1552,14 @@ class SpecBuilderApp(ctk.CTk):
         self.logo_badge.configure(fg_color=t["accent"], text_color=t["accent_text"])
         self.company_lbl.configure(text_color=t["text_main"])
         self.subtitle_lbl.configure(text_color=t["text_muted"])
-
         self.theme_menu.configure(
-            fg_color=t["badge_bg"],
-            button_color=t["accent"],
-            button_hover_color=t["accent_hover"],
-            text_color=t["text_main"],
-            dropdown_fg_color=t["bg_card"],
-            dropdown_hover_color=t["hover"],
-            dropdown_text_color=t["text_main"],
+            fg_color=t["badge_bg"], button_color=t["accent"], button_hover_color=t["accent_hover"],
+            text_color=t["text_main"], dropdown_fg_color=t["bg_card"],
+            dropdown_hover_color=t["hover"], dropdown_text_color=t["text_main"],
         )
-
         self.user_badge.configure(fg_color=t["badge_bg"], border_color=t["border"])
         self.user_dot.configure(text_color=t["accent"])
         self.user_lbl.configure(text_color=t["text_main"])
-
         self.left_nav.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
         self.nav_title.configure(text_color=t["text_muted"])
         self.nav_active_btn.configure(fg_color=t["sel_bg"], hover_color=t["hover"], text_color=t["sel_text"])
@@ -1888,40 +1567,29 @@ class SpecBuilderApp(ctk.CTk):
         self.nav_calc_btn.configure(hover_color=t["hover"], text_color=t["text_main"])
         self.nav_reload_btn.configure(hover_color=t["hover"], text_color=t["text_muted"])
         self.status_badge.configure(text_color=t["accent"])
-
         self.center.configure(fg_color=t["bg_app"])
         for card in (self.card1, self.card2, self.card3):
             card.configure(fg_color=t["bg_card"], border_color=t["border"])
-
         self.c1_title.configure(text_color=t["title_accent1"])
         self.c2_title.configure(text_color=t["title_accent2"])
         self.c3_title.configure(text_color=t["title_accent3"])
-
         self.selected_firm_lbl.configure(text_color=t["text_main"])
         self.last_file_lbl.configure(text_color=t["text_muted"])
-
         self._update_calc_bar_style()
         self.calc_toggle_btn.configure(
             fg_color=t["bg_card"], hover_color=t["hover"], border_color=t["border"], text_color=t["text_main"]
         )
-
         for ent in (self.calc_search_entry, self.spec_entry, self.inv_entry, self.search_entry):
             ent.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
-
         self.calc_scroll.configure(fg_color=t["bg_input"], border_color=t["border"])
         self.lbl_spec_num.configure(text_color=t["text_muted"])
         self.lbl_inv_num.configure(text_color=t["text_muted"])
-
         self._update_open_form_btn_style()
         self.log_box.configure(fg_color=t["bg_input"], border_color=t["border"], text_color=t["text_main"])
-
-        self.build_btn.configure(
-            fg_color=t["accent"], hover_color=t["accent_hover"], text_color=t["accent_text"]
-        )
+        self.build_btn.configure(fg_color=t["accent"], hover_color=t["accent_hover"], text_color=t["accent_text"])
         self.clip_btn.configure(
             fg_color=t["bg_card"], hover_color=t["hover"], border_color=t["border"], text_color=t["text_main"]
         )
-
         self.right_panel.configure(fg_color=t["bg_sidebar"], border_color=t["border"])
         self.firms_header_lbl.configure(text_color=t["title_accent1"])
 
@@ -1941,24 +1609,16 @@ class SpecBuilderApp(ctk.CTk):
         for widget in self.clients_scroll.winfo_children():
             widget.destroy()
         self.client_buttons.clear()
-
         t = self.t
         q = query.strip().lower()
         filtered = [c for c in self.all_clients if q in c.lower()]
         self.firms_header_lbl.configure(text=f"Справочник фирм ({len(filtered)})")
-
         for name in filtered:
             is_sel = name == self.selected_client
             btn = ctk.CTkButton(
-                self.clients_scroll,
-                text=name,
-                anchor="w",
-                height=32,
-                corner_radius=8,
-                fg_color=t["sel_bg"] if is_sel else t["bg_card"],
-                hover_color=t["hover"],
-                border_width=1,
-                border_color=t["accent"] if is_sel else t["border"],
+                self.clients_scroll, text=name, anchor="w", height=32, corner_radius=8,
+                fg_color=t["sel_bg"] if is_sel else t["bg_card"], hover_color=t["hover"],
+                border_width=1, border_color=t["accent"] if is_sel else t["border"],
                 text_color=t["sel_text"] if is_sel else t["text_main"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
                 command=lambda n=name: self._select_client(n),
@@ -1970,36 +1630,24 @@ class SpecBuilderApp(ctk.CTk):
         for widget in self.calc_scroll.winfo_children():
             widget.destroy()
         self.calc_buttons.clear()
-
         t = self.t
         q = query.strip().lower()
         q_lat = normalize_latin(q) if q else ""
-
         if q:
-            matched = [
-                f for f in self.all_calc_folders
-                if q in f.lower() or (q_lat and q_lat in normalize_latin(f))
+            items = ["(не выбрана)"] + [
+                f for f in self.all_calc_folders if q in f.lower() or (q_lat and q_lat in normalize_latin(f))
             ]
-            items = ["(не выбрана)"] + matched
         else:
             items = []
             if self.selected_calc_folder and self.selected_calc_folder != "(не выбрана)":
                 items.append(self.selected_calc_folder)
             items.append("(не выбрана)")
-            for f in self.all_calc_folders:
-                if f != self.selected_calc_folder:
-                    items.append(f)
-
+            items.extend(f for f in self.all_calc_folders if f != self.selected_calc_folder)
         for name in items[:80]:
             is_sel = name == self.selected_calc_folder
             btn = ctk.CTkButton(
-                self.calc_scroll,
-                text=name,
-                anchor="w",
-                height=28,
-                corner_radius=6,
-                fg_color=t["sel_bg"] if is_sel else "transparent",
-                hover_color=t["hover"],
+                self.calc_scroll, text=name, anchor="w", height=28, corner_radius=6,
+                fg_color=t["sel_bg"] if is_sel else "transparent", hover_color=t["hover"],
                 text_color=t["sel_text"] if is_sel else t["text_main"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
                 command=lambda n=name: self._select_calc_folder(n),
@@ -2023,18 +1671,15 @@ class SpecBuilderApp(ctk.CTk):
     def _select_calc_folder(self, folder_name: str):
         self.selected_calc_folder = folder_name
         self._update_calc_bar_style()
-
         if self.selected_client and folder_name != "(не выбрана)":
             self.folder_mapping[self.selected_client] = folder_name
             self.user_settings["folder_mapping"] = self.folder_mapping
             save_user_settings(self.user_settings)
-
         self._set_calc_picker_visible(False)
 
     def _select_client(self, client_name: str):
         self.selected_client = client_name
         self.selected_firm_lbl.configure(text=client_name)
-
         t = self.t
         for name, btn in self.client_buttons.items():
             is_sel = name == client_name
@@ -2044,15 +1689,11 @@ class SpecBuilderApp(ctk.CTk):
                 text_color=t["sel_text"] if is_sel else t["text_main"],
                 font=ctk.CTkFont(size=12, weight="bold" if is_sel else "normal"),
             )
-
         spec_folder = os.path.join(CFG["specs_root"], client_name)
         try:
             last_num, last_file = find_latest_spec(spec_folder)
             self.spec_num_var.set(str(last_num + 1))
-            self.last_file_lbl.configure(
-                text=f"Последний файл: {os.path.basename(last_file)}",
-                text_color=t["text_muted"],
-            )
+            self.last_file_lbl.configure(text=f"Последний файл: {os.path.basename(last_file)}", text_color=t["text_muted"])
         except Exception as e:
             self.spec_num_var.set("1")
             self.last_file_lbl.configure(text=f"Внимание: {e}", text_color="#ef4444")
@@ -2061,26 +1702,18 @@ class SpecBuilderApp(ctk.CTk):
         self.selected_calc_folder = guessed
         self.calc_search_var.set("")
         self._update_calc_bar_style()
-
         self._set_calc_picker_visible(guessed == "(не выбрана)")
 
     def _open_selected_spec_folder(self):
-        if not self.selected_client:
-            os.startfile(CFG["specs_root"])
-            return
-        folder = os.path.join(CFG["specs_root"], self.selected_client)
+        folder = os.path.join(CFG["specs_root"], self.selected_client) if self.selected_client else CFG["specs_root"]
         if os.path.isdir(folder):
             os.startfile(folder)
 
     def _open_selected_calc_folder(self):
         calc = self.selected_calc_folder
-        if calc and calc != "(не выбрана)":
-            folder = os.path.join(CFG["calc_root"], calc)
-            if os.path.isdir(folder):
-                os.startfile(folder)
-                return
-        if os.path.isdir(CFG["calc_root"]):
-            os.startfile(CFG["calc_root"])
+        folder = os.path.join(CFG["calc_root"], calc) if calc and calc != "(не выбрана)" else CFG["calc_root"]
+        if os.path.isdir(folder):
+            os.startfile(folder)
 
     def _reload_all_folders(self):
         self._load_folders()
@@ -2093,12 +1726,10 @@ class SpecBuilderApp(ctk.CTk):
         if not self.selected_client:
             messagebox.showwarning("Внимание", "Сначала выберите фирму в списке справа.")
             return
-
         inv_num = clean_invoice_number(self.inv_var.get())
         if not inv_num:
             messagebox.showwarning("Внимание", "Введите номер счёта из 1С (например, 412).")
             return
-
         try:
             new_spec_num = int(self.spec_num_var.get().strip())
         except ValueError:
@@ -2109,41 +1740,24 @@ class SpecBuilderApp(ctk.CTk):
         use_open = self.use_open_form
         self.build_btn.configure(state="disabled", text="ВЫПОЛНЯЕТСЯ СБОРКА...")
         self.clip_btn.configure(state="disabled")
-
         if not from_clipboard_only:
             self.iconify()
 
         def worker():
             try:
                 res = build_specification(
-                    CFG,
-                    self.selected_client,
-                    calc_folder_name,
-                    inv_num,
-                    new_spec_num,
-                    use_open,
-                    from_clipboard_only,
-                    lambda m: self._set_status(m, self.t["title_accent1"]),
+                    CFG, self.selected_client, calc_folder_name, inv_num, new_spec_num,
+                    use_open, from_clipboard_only, lambda m: self._set_status(m, self.t["title_accent1"]),
                 )
                 self._set_status("Готово! Спецификация открыта в Excel.", self.t["accent"])
                 self.after(0, self.deiconify)
-                self.after(
-                    0,
-                    lambda: messagebox.showinfo(
-                        "Готово", f"Спецификация собрана и открыта в Excel:\n{res}"
-                    ),
-                )
+                self.after(0, lambda: messagebox.showinfo("Готово", f"Спецификация собрана и открыта в Excel:\n{res}"))
             except Exception as e:
                 self._set_status(f"Ошибка: {e}", "#ef4444")
                 self.after(0, self.deiconify)
                 self.after(0, lambda err=str(e): messagebox.showerror("Ошибка", err))
             finally:
-                self.after(
-                    0,
-                    lambda: self.build_btn.configure(
-                        state="normal", text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL"
-                    ),
-                )
+                self.after(0, lambda: self.build_btn.configure(state="normal", text="СОБРАТЬ СПЕЦИФИКАЦИЮ И ОТКРЫТЬ EXCEL"))
                 self.after(0, lambda: self.clip_btn.configure(state="normal"))
 
         threading.Thread(target=worker, daemon=True).start()
