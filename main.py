@@ -506,10 +506,6 @@ def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
 
 
 def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
-    """
-    Вводит номер счёта в поле поиска справа и возвращает нижнюю координату (Y)
-    панели инструментов списка, чтобы потом точно кликнуть в 1-ю отфильтрованную строку.
-    """
     win_rect = win_1c.rectangle()
     toolbar_top = None
     toolbar_bottom = None
@@ -573,14 +569,6 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
 
 
 def double_click_invoice_row(win_1c, invoice_number: str, toolbar_bottom, log_cb) -> bool:
-    """
-    Открывает отфильтрованную строку счёта в 1С:
-    1. Ищет ячейку с номером счёта в дереве UIA.
-    2. Ищет заголовок столбца («Номер» / «Дата» / «Контрагент») и кликает под ним.
-    3. Если 1С прячет таблицу от UIA — делает двойной клик по точным экранным
-       координатам 1-й строки таблицы под панелью «Создать» и проверяет, что
-       открылась форма счёта («Провести и закрыть»).
-    """
     num_str = str(invoice_number).strip().lstrip("0") or "0"
     win_rect = win_1c.rectangle()
     pattern = re.compile(rf"(?:^|[-0]){re.escape(num_str)}\b")
@@ -605,7 +593,7 @@ def double_click_invoice_row(win_1c, invoice_number: str, toolbar_bottom, log_cb
     except Exception:
         pass
 
-    # Способ 2: ищем шапку колонки (учитывая стрелки сортировки вроде "Номер ↓")
+    # Способ 2: ищем шапку колонки
     try:
         for hdr_name in ("номер", "контрагент", "дата"):
             for el in win_1c.descendants():
@@ -834,7 +822,7 @@ def parse_invoice_clipboard_text(raw_text: str) -> dict:
 
 
 # =============================================================================
-# ПОИСК НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ"
+# ПОИСК БЛАНКА И НИЖНЕЙ СТРОКИ В ПАПКЕ "РАСЧЕТЫ" (ВКЛЮЧАЯ ВП -> сч 0319_2026)
 # =============================================================================
 def extract_board_tokens(board_name: str) -> list:
     stop_words = {"печ.платы", "печатные", "платы", "плата", "ps", "пп", "шт"}
@@ -845,6 +833,50 @@ def extract_board_tokens(board_name: str) -> list:
         if len(clean) >= 3 and clean not in stop_words:
             tokens.append(clean)
     return tokens
+
+
+def is_ignored_calc_filename(fname: str) -> bool:
+    low = fname.lower()
+    if low.startswith("~$"):
+        return True
+    for bad in ("счет", "счёт", "расчет", "расчёт", "прайс"):
+        if bad in low:
+            return True
+    return False
+
+
+def find_invoice_calc_folder(calc_folder: str, invoice_num: str) -> str:
+    """
+    Ищет подпапку с номером счёта внутри папки фирмы в РАСЧЕТЫ:
+    например, \\Fs01\obmen\РАСЧЕТЫ\APS\ВП\сч 0319_2026 или ...\сч 0319.
+    """
+    if not calc_folder or not os.path.isdir(calc_folder) or not invoice_num:
+        return ""
+
+    num_clean = str(invoice_num).strip().lstrip("0") or "0"
+    pat = re.compile(rf"(?:^|[^0-9])0*{re.escape(num_clean)}(?:[^0-9]|$)")
+
+    search_roots = [calc_folder]
+    try:
+        for entry in os.listdir(calc_folder):
+            sub = os.path.join(calc_folder, entry)
+            if os.path.isdir(sub):
+                if pat.search(entry):
+                    return sub
+                search_roots.append(sub)
+    except Exception:
+        pass
+
+    for root_dir in search_roots[1:]:
+        try:
+            for entry in os.listdir(root_dir):
+                sub = os.path.join(root_dir, entry)
+                if os.path.isdir(sub) and pat.search(entry):
+                    return sub
+        except Exception:
+            pass
+
+    return ""
 
 
 def extract_6_tech_cells_from_rows(rows: list) -> list:
@@ -876,44 +908,82 @@ def extract_6_tech_cells_from_rows(rows: list) -> list:
     return [""] * 6
 
 
-def find_calc_bottom_row(calc_folder: str, board_name: str, raw_name: str = "") -> list:
-    if not calc_folder or not os.path.isdir(calc_folder):
-        return [""] * 6
-
-    tokens = extract_board_tokens(board_name + " " + raw_name)
-    if not tokens:
-        return [""] * 6
-
-    target_file = None
-    best_hits = 0
-
-    for fname in os.listdir(calc_folder):
-        if fname.startswith("~$"):
-            continue
-        if not fname.lower().endswith((".xls", ".xlsx")):
-            continue
-        low_name = fname.lower()
-        hits = sum(1 for tok in tokens if tok in low_name)
-        if hits > best_hits:
-            best_hits = hits
-            target_file = os.path.join(calc_folder, fname)
-
-    if not target_file:
-        return [""] * 6
-
+def read_tech_cells_from_excel(filepath: str) -> list:
     rows = []
-    if target_file.lower().endswith(".xls"):
-        wb = xlrd.open_workbook(target_file)
+    if filepath.lower().endswith(".xls"):
+        wb = xlrd.open_workbook(filepath)
         sh = wb.sheet_by_index(0)
         for r in range(sh.nrows):
             rows.append([sh.cell_value(r, c) for c in range(sh.ncols)])
     else:
-        wb = openpyxl.load_workbook(target_file, data_only=True)
+        wb = openpyxl.load_workbook(filepath, data_only=True)
         ws = wb.active
         for r in range(1, ws.max_row + 1):
             rows.append([ws.cell(r, c).value for c in range(1, ws.max_column + 1)])
-
     return extract_6_tech_cells_from_rows(rows)
+
+
+def pick_best_blank_in_folder(folder: str, tokens: list, item_idx: int = 0) -> str:
+    if not folder or not os.path.isdir(folder):
+        return ""
+
+    files = [
+        f for f in os.listdir(folder)
+        if f.lower().endswith((".xls", ".xlsx")) and not is_ignored_calc_filename(f)
+    ]
+
+    # 1. Ищем файл по названию платы (например, bvp1.xls)
+    best_file = ""
+    best_hits = 0
+    for fname in files:
+        low_name = fname.lower()
+        hits = sum(1 for tok in tokens if tok in low_name)
+        if hits > best_hits:
+            best_hits = hits
+            best_file = os.path.join(folder, fname)
+    if best_file:
+        return best_file
+
+    # 2. Если в папке счёта файлы названы по номерам позиций: 1.xls, 2.xls, 3.xls
+    if item_idx > 0:
+        for ext in (".xls", ".xlsx"):
+            exact_name = f"{item_idx}{ext}"
+            for fname in files:
+                if fname.lower() == exact_name:
+                    return os.path.join(folder, fname)
+
+    return ""
+
+
+def find_calc_bottom_row(
+    calc_folder: str,
+    board_name: str,
+    raw_name: str = "",
+    invoice_num: str = "",
+    item_idx: int = 0,
+) -> list:
+    if not calc_folder or not os.path.isdir(calc_folder):
+        return [""] * 6
+
+    tokens = extract_board_tokens(board_name + " " + raw_name)
+    target_file = ""
+
+    # Приоритет 1: папка конкретного счёта (например, РАСЧЕТЫ\APS\ВП\сч 0319_2026 -> 1.xls / 2.xls / 3.xls)
+    inv_folder = find_invoice_calc_folder(calc_folder, invoice_num)
+    if inv_folder:
+        target_file = pick_best_blank_in_folder(inv_folder, tokens, item_idx=item_idx)
+
+    # Приоритет 2: корень папки фирмы в РАСЧЕТЫ (например, РАСЧЕТЫ\APS\bvp1.xls)
+    if not target_file and tokens:
+        target_file = pick_best_blank_in_folder(calc_folder, tokens, item_idx=0)
+
+    if not target_file:
+        return [""] * 6
+
+    try:
+        return read_tech_cells_from_excel(target_file)
+    except Exception:
+        return [""] * 6
 
 
 # =============================================================================
@@ -961,6 +1031,10 @@ def build_specification(
             "Убедись, что открыта печатная форма «Счёт в формате 7.7»."
         )
 
+    inv_calc_dir = find_invoice_calc_folder(calc_folder, invoice_num)
+    if inv_calc_dir:
+        log_cb(f"Найдена папка счёта в РАСЧЕТЫ: {os.path.basename(inv_calc_dir)}")
+
     log_cb(f"Найдено позиций: {len(items)}. Заполняем Excel и подтягиваем РАСЧЕТЫ...")
     pythoncom.CoInitialize()
     try:
@@ -969,6 +1043,7 @@ def build_specification(
         wb = excel.Workbooks.Open(new_file)
         ws = wb.Sheets(1)
 
+        # 1. Обновляем "Приложение № ..." в строках 1-3 (сохраняя договор)
         for r in range(1, 4):
             for c in range(1, 17):
                 val = ws.Cells(r, c).Value
@@ -980,6 +1055,7 @@ def build_specification(
                         flags=re.IGNORECASE,
                     )
 
+        # 2. Обновляем "Спецификация № ... от ... г." в строках 2-6
         spec_title_updated = False
         for r in range(2, 7):
             for c in range(1, 5):
@@ -993,6 +1069,7 @@ def build_specification(
         if not spec_title_updated:
             ws.Range("A4").Value = f"Спецификация № {new_spec_num} от {inv['date']} г."
 
+        # 3. Находим строку заголовка таблицы ("Наименование")
         header_row = 8
         for r in range(5, 13):
             b_val = str(ws.Cells(r, 2).Value or "").lower()
@@ -1001,10 +1078,11 @@ def build_specification(
                 break
         start_row = header_row + 1
 
+        # 4. Находим строку "Итого без НДС" (ищем по столбцам A..G)
         total_row = start_row
         while total_row < 150:
-            val = str(ws.Cells(total_row, 1).Value or "").lower()
-            if "итого" in val:
+            row_text = " ".join(str(ws.Cells(total_row, c).Value or "") for c in range(1, 8)).lower()
+            if "итого" in row_text:
                 break
             total_row += 1
 
@@ -1019,36 +1097,44 @@ def build_specification(
             for _ in range(existing_rows - needed_rows):
                 ws.Rows(start_row + needed_rows).Delete()
 
+        # 5. Заполняем позиции (столбцы A-O)
         for idx, item in enumerate(items, start=1):
             r = start_row + idx - 1
-            ws.Cells(r, 1).Value = idx
-            ws.Cells(r, 2).Value = item["name"]
-            ws.Cells(r, 3).Value = item["ps_num"]
-            ws.Cells(r, 4).Value = item["term"]
-            ws.Cells(r, 5).Value = item["unit"]
-            ws.Cells(r, 6).Value = item["qty"]
-            ws.Cells(r, 7).Value = item["price"]
-            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)
-            ws.Cells(r, 9).Value = ""
+            ws.Cells(r, 1).Value = idx                                   # A: № п/п
+            ws.Cells(r, 2).Value = item["name"]                          # B: Наименование платы
+            ws.Cells(r, 3).Value = item["ps_num"]                        # C: Зав. № заказа (Пэсочка)
+            ws.Cells(r, 4).Value = item["term"]                          # D: Срок пост.
+            ws.Cells(r, 5).Value = item["unit"]                          # E: Ед. изм.
+            ws.Cells(r, 6).Value = item["qty"]                           # F: Кол-во
+            ws.Cells(r, 7).Value = item["price"]                         # G: Цена
+            ws.Cells(r, 8).Value = format_rub_text(item["sum"], False)   # H: Сумма
+            ws.Cells(r, 9).Value = ""                                    # I: Площадь
 
-            tech = find_calc_bottom_row(calc_folder, item["name"], item["raw_name"])
+            tech = find_calc_bottom_row(
+                calc_folder,
+                item["name"],
+                item["raw_name"],
+                invoice_num=invoice_num,
+                item_idx=idx,
+            )
             for offset, val in enumerate(tech):
                 ws.Cells(r, 10 + offset).Value = val
 
+        # 6. Заполняем итоги (ищем подписи по столбцам A..G, пишем в H) и суммы прописью (в C)
         new_total_row = start_row + needed_rows
         for r in range(new_total_row, new_total_row + 12):
-            a_low = str(ws.Cells(r, 1).Value or "").lower()
-            b_low = str(ws.Cells(r, 2).Value or "").lower()
-            if "итого без ндс" in a_low:
+            ag_low = " ".join(str(ws.Cells(r, c).Value or "") for c in range(1, 8)).lower()
+            ab_low = " ".join(str(ws.Cells(r, c).Value or "") for c in range(1, 3)).lower()
+            if "итого без ндс" in ag_low:
                 ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["no_nds"], True)
-            elif "итого с ндс" in a_low:
+            elif "итого с ндс" in ag_low:
                 ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["with_nds"], True)
-            elif "ндс" in a_low and "итого" not in a_low:
-                ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["nds"], True)
-            elif "сумма" in b_low:
-                ws.Cells(r, 3).Value = amount_in_words(inv["totals"]["with_nds"])
-            elif "в том числе ндс" in b_low:
+            elif "в том числе ндс" in ab_low:
                 ws.Cells(r, 3).Value = amount_in_words(inv["totals"]["nds"])
+            elif "сумма" in ab_low:
+                ws.Cells(r, 3).Value = amount_in_words(inv["totals"]["with_nds"])
+            elif "ндс" in ag_low and "итого" not in ag_low:
+                ws.Cells(r, 8).Value = format_rub_text(inv["totals"]["nds"], True)
 
         wb.Save()
     finally:
