@@ -310,7 +310,6 @@ def translit_ru(text: str) -> str:
 
 
 def normalize_latin(text: str) -> str:
-    """Приводит кириллицу и латиницу к единому виду для точного сопоставления."""
     s = translit_ru(text)
     s = s.replace("x", "ks").replace("w", "v").replace("q", "k")
     s = s.replace("ph", "f").replace("kh", "h").replace("ts", "c").replace("tz", "c")
@@ -354,7 +353,6 @@ def score_folder_match(client_name: str, folder_name: str) -> float:
 
 
 def guess_calc_folder(client_name: str, calc_folders: list, mapping: dict) -> str:
-    """Автоматически подбирает папку фирмы в «РАСЧЕТЫ» (учитывает сохранённый выбор и транслит)."""
     mapped = mapping.get(client_name) or CFG.get("folder_mapping", {}).get(client_name)
     if mapped and mapped in calc_folders:
         return mapped
@@ -487,7 +485,7 @@ def find_latest_spec(spec_folder: str):
 
 
 # =============================================================================
-# РАБОТА С 1С (УСТОЙЧИВЫЙ ПОИСК С УЧЁТОМ МАСШТАБА ЭКРАНА + ПЕЧАТЬ 7.7)
+# РАБОТА С 1С (РАЗВЁРНУТОЕ ОКНО + ПРОВЕРКА ОТКРЫТИЯ «ПЕЧАТЬ ДОКУМЕНТА»)
 # =============================================================================
 def find_1c_window():
     desktop = Desktop(backend="uia")
@@ -534,6 +532,20 @@ def has_open_invoice_doc(win_1c, invoice_number: str = "") -> bool:
     return False
 
 
+def has_open_print_form(win_1c) -> bool:
+    """Проверяет, открылась ли вкладка «Печать документа» в 1С."""
+    try:
+        for el in win_1c.descendants():
+            txt = (el.window_text() or "").strip().lower()
+            if txt == "печать документа" or txt.startswith("копий"):
+                r = el.rectangle()
+                if r.width() > 15 and r.height() > 10:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, exact_only: bool = False) -> bool:
     deadline = time.time() + timeout
     needle = exact_or_part.lower().replace("ё", "е")
@@ -553,13 +565,16 @@ def click_1c_element_by_name(win_1c, exact_or_part: str, timeout: float = 8.0, e
     return False
 
 
-def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
+def click_1c_popup_item(win_1c, exact_text: str, timeout: float = 3.0) -> bool:
+    """Ищет пункт меню ТОЛЬКО в окнах процесса 1С (быстро, без перебора всех программ Windows)."""
     deadline = time.time() + timeout
     needle = exact_text.lower().replace("ё", "е")
+    pid_1c = win_1c.process_id()
     desktop = Desktop(backend="uia")
+
     while time.time() < deadline:
         try:
-            for w in desktop.windows():
+            for w in desktop.windows(process=pid_1c):
                 for el in w.descendants():
                     txt = (el.window_text() or "").strip().lower().replace("ё", "е")
                     if txt == needle:
@@ -569,7 +584,7 @@ def click_popup_menu_item(exact_text: str, timeout: float = 4.0) -> bool:
                             return True
         except Exception:
             pass
-        time.sleep(0.35)
+        time.sleep(0.25)
     return False
 
 
@@ -599,7 +614,7 @@ def focus_list_search_box_and_filter(win_1c, invoice_number: str, log_cb):
             if r.top < win_rect.top + 60:
                 continue
             name = (el.window_text() or "").lower()
-            is_right = r.left > (win_rect.left + win_rect.width() * 0.42)
+            is_right = r.left > (win_rect.left + win_rect.width() * 0.40)
             near_toolbar = (toolbar_top is None) or (abs(r.top - toolbar_top) < 65)
             if "поиск" in name and near_toolbar:
                 candidates.insert(0, el)
@@ -728,15 +743,19 @@ def click_document_print_77(win_1c, log_cb):
 
     log_cb("Нажимаем «Печать» → «Счёт в формате 7.7»...")
     print_btn.click_input()
-    time.sleep(0.9)
+    time.sleep(0.8)
 
-    if not click_popup_menu_item("Счёт в формате 7.7", timeout=4.0):
+    if not click_1c_popup_item(win_1c, "Счёт в формате 7.7", timeout=2.5):
         for _ in range(3):
             press_vk(win32con.VK_DOWN)
-            time.sleep(0.12)
+            time.sleep(0.15)
         press_vk(win32con.VK_RETURN)
 
-    time.sleep(2.5)
+    for _ in range(14):
+        time.sleep(0.5)
+        if has_open_print_form(win_1c):
+            time.sleep(0.8)
+            return
 
 
 def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: bool, log_cb) -> str:
@@ -769,7 +788,9 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
         time.sleep(6.0)
 
     try:
-        win_1c.restore()
+        if win_1c.is_minimized():
+            win_1c.restore()
+        win_1c.maximize()
     except Exception:
         pass
     win_1c.set_focus()
@@ -789,31 +810,36 @@ def grab_text_from_1c_print_form(cfg: dict, invoice_number: str, use_open_form: 
             if not open_filtered_invoice_row(win_1c, invoice_number, toolbar_bottom, used_ctrl_f, log_cb):
                 raise RuntimeError(
                     f"В списке «Счета покупателям» не удалось открыть строку со счётом № {invoice_number}.\n"
-                    "Проверь номер счёта и период отбора в 1С (или открой «Счёт в формате 7.7» вручную и поставь галочку)."
+                    "Проверь номер счёта и период отбора в 1С."
                 )
             time.sleep(1.0)
 
         click_document_print_77(win_1c, log_cb)
 
     log_cb("Копируем таблицу из печатной формы (Ctrl+A → Ctrl+C)...")
-    clear_clipboard()
-    time.sleep(0.25)
+    rect = win_1c.rectangle()
+    raw_text = ""
 
-    try:
-        rect = win_1c.rectangle()
-        abs_x = int((rect.left + rect.right) * 0.45)
-        abs_y = int((rect.top + rect.bottom) * 0.45)
-        mouse.click(coords=(abs_x, abs_y))
-        time.sleep(0.4)
-    except Exception:
-        pass
+    for fx, fy in ((0.45, 0.55), (0.35, 0.62)):
+        clear_clipboard()
+        time.sleep(0.2)
+        try:
+            abs_x = int(rect.left + rect.width() * fx)
+            abs_y = int(rect.top + rect.height() * fy)
+            mouse.click(coords=(abs_x, abs_y))
+            time.sleep(0.4)
+        except Exception:
+            pass
 
-    press_ctrl_key(0x41)  # Ctrl+A
-    time.sleep(0.5)
-    press_ctrl_key(0x43)  # Ctrl+C
-    time.sleep(0.9)
+        press_ctrl_key(0x41)  # Ctrl+A
+        time.sleep(0.5)
+        press_ctrl_key(0x43)  # Ctrl+C
+        time.sleep(0.9)
 
-    raw_text = get_clipboard_text()
+        raw_text = get_clipboard_text()
+        if raw_text.strip():
+            break
+
     if not raw_text.strip():
         raise RuntimeError(
             "Буфер обмена остался пустым после копирования из 1С.\n\n"
@@ -1679,7 +1705,6 @@ class SpecBuilderApp(ctk.CTk):
             ]
             items = ["(не выбрана)"] + matched
         else:
-            # Если папка уже подобрана — ставим её самой первой, чтобы сразу была на виду
             items = []
             if self.selected_calc_folder and self.selected_calc_folder != "(не выбрана)":
                 items.append(self.selected_calc_folder)
